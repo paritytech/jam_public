@@ -1,0 +1,9 @@
+[package]
+name = "tutorial_service"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+
+[dependencies]
+jam-pvm-common = { version = "0.1.26", default-features = false, features = ["service", "logging"] }
+polkavm-derive = "0.31.0"

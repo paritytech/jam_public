@@ -1,0 +1,145 @@
+# Useful shortcuts for services
+
+# Show usage and recommended workflow
+[default]
+help:
+    @echo "JAM Service Toolkit"
+    @echo ""
+    @echo "Basic Workflow:"
+    @echo "  1. Start a testnet:                 'just start-testnet'"
+    @echo "  2. Build your service:              'just build-service <path to service source code>'"
+    @echo "  3. Create service:                  'just create-service <path to service source code>'"
+    @echo "  4. Submit work items:               'just submit-item <string data or encoded hex-string>'"
+    @echo "  5. Submit a file of Work-Item data: 'just submit-file <path to text file>'"
+    @echo "  6. Query storage:                   'just query-storage KEY'"
+    @echo ""
+    @echo "Run 'just --list' to see all available commands"
+
+
+# Start testnet
+start-testnet:
+    polkajam-testnet
+alias st := start-testnet
+
+# Build a service
+build-service SERVICE:
+    jam-pvm-build -m service {{SERVICE}}
+alias bs := build-service
+
+# Create a service on a running testnet
+create-service SERVICE AMOUNT='1000000000':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    output=$(jamt create-service {{SERVICE}} {{AMOUNT}} "Initial endowment" 2>&1 | tee /dev/tty)
+    service_id=$(echo "$output" | awk '/Service [0-9a-f]+ created/ {print $2}')
+    just _save-service-id-if-found "$service_id"
+alias cs := create-service
+
+# Submit a WorkItem. If Service is not specified, use the last service.
+# Data is submitted as encoded bytes. If DATA is a quoted string, it will be 
+# encoded as UTF-8 bytes. If it's a hex string (starting with 0x), it will be decoded from hex into bytes.
+[doc('Submit a WorkItem to a service.')]
+submit-item DATA SERVICE='':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -z "{{SERVICE}}" ]; then
+        service_id=$(just _get-last-service-id)
+    else
+        service_id="{{SERVICE}}"
+    fi
+
+    jamt item "$service_id" "{{DATA}}"
+alias s := submit-item
+
+# Submit a WorkItem with data read from a file. If Service is not specified, use the last service.
+# This is particularly useful for submitting large or complex data, such as JSON-encoded operations for the token ledger service.
+[doc('Submit a WorkItem with data read from a file')]
+submit-file FILE SERVICE='':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -z "{{SERVICE}}" ]; then
+        service_id=$(just _get-last-service-id)
+    else
+        service_id="{{SERVICE}}"
+    fi
+
+    data=$(cat "{{FILE}}")
+    jamt item "$service_id" "$data"
+alias sf := submit-file
+
+# Query service's information. If service is not defined, use the last created service.
+query-service SERVICE='':
+    #!/usr/bin/env bash
+    if [ -z "{{SERVICE}}" ]; then
+        service_id=$(just _get-last-service-id)
+    else
+        service_id="{{SERVICE}}"
+    fi
+    jamt inspect service "$service_id"
+
+# Query service's storage. If service is not defined, use the last created service.
+query-storage KEY SERVICE='':
+    #!/usr/bin/env bash
+    if [ -z "{{SERVICE}}" ]; then
+        service_id=$(just _get-last-service-id)
+    else
+        service_id="{{SERVICE}}"
+    fi
+    jamt inspect storage "$service_id" "{{KEY}}"
+alias qs := query-storage
+
+# Queue a WorkItem to a service:
+queue-item DATA SERVICE='':
+    #!/usr/bin/env bash
+    if [ -z "{{SERVICE}}" ]; then
+        service_id=$(just _get-last-service-id)
+    else
+        service_id="{{SERVICE}}"
+    fi
+    jamt --queue item "$service_id" "{{DATA}}"
+alias q := queue-item
+
+# Empty WorkItem queue and submit a package:
+package:
+    jamt pack
+alias p := package
+
+### Token-Ledger specific recipes:
+
+# Query the Token-Ledger's balance for a given token ID and account ID.
+balance token_id ACCOUNT_ID:
+    #!/usr/bin/env bash
+    key=$(just _get_balance_key {{token_id}} {{ACCOUNT_ID}})
+    printf "Balance key: %s\n" "$key"
+    just query-storage $key
+alias b := balance
+
+# Get balance key
+_get_balance_key token_id ACCOUNT_ID:
+    @printf "0x62616c3a%02x%02x%02x%02x%s" \
+        $(({{ token_id }} & 0xFF)) \
+        $((({{ token_id }} >> 8) & 0xFF)) \
+        $((({{ token_id }} >> 16) & 0xFF)) \
+        $((({{ token_id }} >> 24) & 0xFF)) \
+        "{{ ACCOUNT_ID }}"
+
+# Get the last created service ID
+_get-last-service-id:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -f .last_service_id.just ]; then
+        echo "Error: No service ID found. Run 'just create-service' first." >&2
+        exit 1
+    fi
+    cat .last_service_id.just
+
+# Save service ID if found, warn if not
+_save-service-id-if-found SERVICE_ID:
+    #!/usr/bin/env bash
+    if [ -n "{{SERVICE_ID}}" ]; then
+        echo "{{SERVICE_ID}}" > .last_service_id.just
+        echo "Saved service ID: {{SERVICE_ID}}"
+    else
+        echo "Warning: Could not extract service ID from output"
+    fi
+
