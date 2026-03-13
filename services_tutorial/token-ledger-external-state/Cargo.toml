@@ -1,0 +1,35 @@
+[package]
+name = "token-ledger-external-state"
+version = "0.1.0"
+edition = "2024"
+description = "The JAM Token-Ledger service, providing transfers of tokens between holder accounts."
+license = "Apache-2.0"
+
+
+[dependencies]
+token-ledger = { version = "0.1.0", path = "../token-ledger" }
+jam-pvm-common = { version = "0.1.26", default-features = false, features = ["service", "logging"] }
+jam-types = { version = "0.1.26", default-features = false }
+polkavm-derive = "0.31.0"
+codec = { version = "0.1.1", default-features = false, package = "jam-codec" }
+hex = { version = "0.4.3", default-features = false }
+blake2b_simd = { version = "1", default-features = false }
+
+[dev-dependencies]
+codec = { version = "0.1.1", default-features = false, features = ["std"], package = "jam-codec" }
+tempfile = { version = "3.12.0", default-features = false }
+
+[features]
+default = ["single_payload", "drop_all_on_fail"]
+std = ["codec/std", "blake2b_simd/std"]
+
+# one workitem produced to accumulate, no concurency, accumulate simply change root, all is
+# checked in refine
+single_payload = []
+# multiple workitem to pass in a single accumulate for a simple state transition.
+# accumulate produce changed root from input
+single_package = []
+# multiple workitem over multiple accumulate calls.
+multiple = []
+drop_all_on_fail = []
+track_fail = []

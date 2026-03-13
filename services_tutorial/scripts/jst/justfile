@@ -63,8 +63,7 @@ submit-file FILE SERVICE='':
         service_id="{{SERVICE}}"
     fi
 
-    data=$(cat "{{FILE}}")
-    jamt item "$service_id" "$data"
+    jamt item "$service_id" "{{FILE}}"
 alias sf := submit-file
 
 # Query service's information. If service is not defined, use the last created service.
