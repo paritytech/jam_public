@@ -16,6 +16,7 @@ polkavm-derive = "0.31.0"
 codec = { version = "0.1.1", default-features = false, features = ["std"], package = "jam-codec" }
 hex = { version = "0.4.3", default-features = false }
 blake2b_simd = { version = "1", default-features = false, features = ["std"] }
+clap = { version = "4.6.0", features = ["cargo"] }
 
 [dev-dependencies]
 tempfile = { version = "3.12.0", default-features = false }

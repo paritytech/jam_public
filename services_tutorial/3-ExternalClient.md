@@ -48,7 +48,7 @@ This tutorial can run the same examples as the token ledger one. One will observ
 
 From `token-ledger-builder-v2`
 ```
-cargo run -- ./example_payloads/op_mint.json refinement_payload
+cargo run -- -i ./example_payloads/op_mint.json -o refinement_payload
 ```
 
 This run locally the external client operations, and write a payload for refinement containing both input operations and the state witness to be able to run.
