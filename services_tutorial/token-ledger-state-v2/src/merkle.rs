@@ -107,6 +107,10 @@ impl State {
 }
 
 impl crate::transition::StateOps for State {
+    fn root(&self) -> Hash {
+        self.get_root()
+    }
+
     fn get_balance(&self, account: AccountId, token_id: TokenId) -> Option<u64> {
         let to_key = token_ledger::api::balance_key(token_id, &account);
         self.balances.get(to_key.as_slice()).cloned()

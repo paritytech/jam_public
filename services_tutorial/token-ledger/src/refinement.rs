@@ -7,7 +7,7 @@ use jam_types::{ServiceId, WorkOutput, WorkPackageHash, WorkPayload};
 
 // ledger api directly used by refine.
 pub use crate::api::{
-    Operation, SignedOperation, VerificationKey, canonical_transfer, verify_signature,
+    canonical_transfer, verify_signature, Operation, SignedOperation, VerificationKey,
 };
 
 pub fn refine(
@@ -43,6 +43,8 @@ pub fn refine(
         } = signed_op;
 
         match operation {
+            // ignore not expected
+            Operation::Solicit { .. } => (),
             Operation::Mint { amount, .. } => {
                 let admin_key: VerificationKey =
                     VerificationKey::try_from(crate::api::admin()).expect("Hard-coded Admin key");

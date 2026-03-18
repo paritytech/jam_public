@@ -15,6 +15,8 @@ mod transition;
 
 pub use transition::{Operations, state_transition, StateOps, Version};
 
+pub use token_ledger::api::Solicit;
+
 pub type TreeIndex = u16;
 
 // Empty hash is all 0, so we just use `Default` trait for most init.

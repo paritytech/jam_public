@@ -6,9 +6,10 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use jam_pvm_common::{info, warn};
+use jam_types::Hash;
 use token_ledger::api::{
     canonical_transfer, verify_signature, AccountId, Counterparts, Operation, SignedOperation,
-    TokenId, VerificationKey,
+    Solicit, TokenId, VerificationKey,
 };
 
 #[derive(Clone, Copy, Debug, Encode, Decode)]
@@ -28,16 +29,21 @@ pub trait StateOps {
     fn known_tokens_push(&mut self, token_id: TokenId);
     fn get_balance(&self, account: AccountId, token_id: TokenId) -> Option<u64>;
     fn set_balance(&mut self, account: AccountId, token_id: TokenId, balance: u64);
+    fn root(&self) -> Hash;
 }
 
 pub fn state_transition<S: StateOps>(
     state: &mut S,
     operations: &Operations,
     checked_operations: bool,
-) {
+) -> Vec<Solicit> {
     info!("Processing external client state transition.",);
 
     let mut staged_transfers: BTreeMap<(TokenId, Counterparts), i64> = BTreeMap::new();
+
+    let mut result: Vec<Solicit> = Default::default();
+
+    let initial_root = state.root();
 
     for op in operations {
         let SignedOperation {
@@ -46,6 +52,16 @@ pub fn state_transition<S: StateOps>(
         } = op;
 
         match operation {
+            Operation::Solicit(solicit) => {
+                // this is mostly for two step: we commit to a state transition on a given root
+                // then the root is lock, note we can receive multiple on a root when it is unlock.
+                // For demo we will lock root only every five blocks, and wait for actual preimage
+                // only five block too.
+
+                if solicit.on_root == initial_root {
+                    result.push(solicit.clone());
+                }
+            }
             Operation::Mint {
                 amount,
                 to,
@@ -119,6 +135,8 @@ pub fn state_transition<S: StateOps>(
             process_transfer(state, to, from, token_id, (-net_amount) as u64);
         } // if zero, skip
     }
+
+    result
 }
 
 fn process_mint<S: StateOps>(state: &mut S, to: AccountId, token_id: TokenId, amount: u64) {

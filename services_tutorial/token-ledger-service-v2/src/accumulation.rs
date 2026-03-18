@@ -3,16 +3,18 @@
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use jam_pvm_common::accumulate::{get, set};
-use jam_pvm_common::{error, info, warn};
+use jam_pvm_common::{error, info, warn, ApiError};
 use jam_types::AccumulateItem;
 use jam_types::WorkItemRecord;
 use token_ledger_state_v2::Hash;
+use token_ledger_state_v2::Solicit;
 
 #[derive(Clone, Debug, Encode, Decode)]
 pub struct Operation {
     pub version: token_ledger_state_v2::Version,
     pub previous_root: Hash,
     pub new_root: Hash,
+    pub to_solicit: Vec<Solicit>,
 }
 
 // previous item step
@@ -44,7 +46,7 @@ pub fn on_accumulate_items(items: Vec<AccumulateItem>) {
     match items_result.single_step {
         Ok(Some(new_root)) => {
             // TODO manage single step error
-            set("external_client_root_single_step", new_root).unwrap();
+            set("client_root", new_root).unwrap();
             info!("External client state transition success");
         }
         Ok(None) => {
@@ -78,13 +80,19 @@ fn on_work_item_record(record: WorkItemRecord, acc: &mut ItemAccumulate) {
 
     match op.version {
         token_ledger_state_v2::Version::NoParallel => {
-            on_work_item_record_single_step(op, &mut acc.single_step);
+            on_work_item_record_single_step(op, &mut acc.single_step, false);
         }
-        token_ledger_state_v2::Version::TwoStepParallel => unimplemented!(),
+        token_ledger_state_v2::Version::TwoStepParallel => {
+            on_work_item_record_single_step(op, &mut acc.single_step, true);
+        }
     }
 }
 
-fn on_work_item_record_single_step(op: Operation, acc: &mut Result<Option<Hash>, ()>) {
+fn on_work_item_record_single_step(
+    op: Operation,
+    acc: &mut Result<Option<Hash>, ()>,
+    two_step: bool,
+) {
     if acc.is_err() {
         return;
     }
@@ -92,12 +100,32 @@ fn on_work_item_record_single_step(op: Operation, acc: &mut Result<Option<Hash>,
     let current_root = if let Ok(Some(r)) = acc {
         *r
     } else {
-        get("external_client_root_single_step").unwrap_or_default()
+        get("client_root").unwrap_or_default()
     };
     if op.previous_root == current_root {
         *acc = Ok(Some(op.new_root));
     } else {
         error!("Mismatch root, skipping all transition");
+        error!("expected {:?}", current_root);
+        error!("have {:?}", op.previous_root);
         *acc = Err(());
+        return;
+    }
+
+    if two_step {
+        for solicit in op.to_solicit {
+            // check in refine In real code we should not have
+            // on_root field at accumulation level.
+            assert!(op.previous_root == solicit.on_root);
+            if let Err(e) = jam_pvm_common::accumulate::solicit(&solicit.hash, solicit.len as usize)
+            {
+                error!("Could not solicit preimage: {:?}, {:?}", solicit.hash, e);
+            } else {
+                info!(
+                    "Preimage {:?} of len {} has been sollicited",
+                    solicit.hash, solicit.len
+                );
+            }
+        }
     }
 }

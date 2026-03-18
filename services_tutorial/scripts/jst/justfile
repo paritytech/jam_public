@@ -66,6 +66,20 @@ submit-file FILE SERVICE='':
     jamt item "$service_id" "{{FILE}}"
 alias sf := submit-file
 
+[doc('Provide a preimage with data read from a file')]
+provide FILE SERVICE='':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -z "{{SERVICE}}" ]; then
+        service_id=$(just _get-last-service-id)
+    else
+        service_id="{{SERVICE}}"
+    fi
+
+    jamt provide "$service_id" "{{FILE}}"
+alias pr := provide
+
+
 # Query service's information. If service is not defined, use the last created service.
 query-service SERVICE='':
     #!/usr/bin/env bash

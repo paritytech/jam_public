@@ -66,7 +66,8 @@ fn main() {
  
     println!("Output: {}", output_path.display());
 
-    let version = if matches.get_flag("two") {
+		let two_steps = matches.get_flag("two");
+    let version = if two_steps {
         dbg!("Running two steps");
         token_ledger_state_v2::Version::TwoStepParallel
     } else {
@@ -82,9 +83,9 @@ fn main() {
     let mut opt_db = std::fs::OpenOptions::new();
     opt_db.read(true).write(true);
     let db_path = std::path::PathBuf::new();
-    let mut state = token_ledger_builder_v2::state::State::from_db_path(db_path, overload_head);
+    let mut state = token_ledger_builder_v2::state::State::from_db_path(db_path.clone(), overload_head);
     println!("Initial root: {}", hex::encode(state.get_root()));
-    token_ledger_state_v2::state_transition(&mut state, &operations, false);
+    let to_solicit = token_ledger_state_v2::state_transition(&mut state, &operations, false);
     let witness = state.take_witness();
     println!("Post execution root: {}", hex::encode(state.get_root()));
     dbg!(&witness);
@@ -95,4 +96,41 @@ fn main() {
         witness,
     };
     refine_payload.encode_to(&mut output);
+
+		if two_steps {
+
+    std::mem::drop(output);
+
+    let mut output = std::fs::File::open(&output_path).unwrap();
+			let mut data = Vec::new();
+			output.read_to_end(&mut data).unwrap();
+			let hash_r =  blake2b_simd::Params::new().hash_length(32).hash(&data);
+			let mut hash: [u8; 32] = [0;32];
+			hash.copy_from_slice(hash_r.as_bytes());
+			let len = data.len() as u64;
+		
+			let mut state = token_ledger_builder_v2::state::State::from_db_path(db_path, overload_head);
+			let mut operations: Vec<token_ledger::api::SignedOperation> = Vec::with_capacity(1);
+
+			operations.push(token_ledger::api::SignedOperation {
+				// Dummy, unchecked in tutorial
+				signature: token_ledger::api::Signature([0; 64].into()),
+				operation: token_ledger::api::Operation::Solicit(token_ledger::api::Solicit {
+					on_root: state.get_root(),
+					hash: hash.into(), len,
+				}),
+			});
+			let to_solicit = token_ledger_state_v2::state_transition(&mut state, &operations, false);
+			// only root as we only check right root for solicit
+    let witness = state.take_witness();
+    let refine_payload = token_ledger_service_v2::RefinePayload {
+        version,
+        operations,
+        witness,
+    };
+		let mut prep_path = output_path.clone();
+		prep_path.set_extension("prepare");
+    let mut output = std::fs::File::create(&prep_path).unwrap();
+    refine_payload.encode_to(&mut output);
+		}
 }

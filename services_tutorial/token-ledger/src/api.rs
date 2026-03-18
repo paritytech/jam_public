@@ -20,6 +20,16 @@ pub enum Operation {
         token_id: TokenId,
         amount: u64,
     },
+    Solicit(Solicit),
+}
+
+/// Solicit a preimage for the service.
+/// Is expected to be applied on a given state root.
+#[derive(Clone, Debug, Encode, Decode)]
+pub struct Solicit {
+			pub on_root: [u8; 32], 
+			pub hash: [u8; 32],
+			pub len: u64,
 }
 
 /// A Refinement Operation with its authorization signature

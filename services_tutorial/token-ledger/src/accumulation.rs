@@ -1,7 +1,7 @@
 // Code support for the accumulation phase. This includes the necessary data types
 // as well as support for storage access and the actual accumulation logic.
 
-use crate::api::{AccountId, TokenId, balance_key};
+use crate::api::{balance_key, AccountId, TokenId};
 use crate::refinement::Operation;
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 use alloc::vec::Vec;
@@ -50,6 +50,8 @@ pub fn on_work_item(record: WorkItemRecord) {
 
     for op in operations {
         match op.0 {
+            // ignore not expected
+            Operation::Solicit { .. } => (),
             Operation::Mint {
                 to,
                 token_id,
