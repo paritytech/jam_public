@@ -22,11 +22,10 @@ pub struct State {
 }
 
 impl State {
-    pub fn from_db_path(db_location: std::path::PathBuf) -> Self {
-        let mut head_path = db_location.clone();
-        head_path.push("HEAD");
+    fn read_head(mut db_location: std::path::PathBuf) -> Hash {
+        db_location.push("HEAD");
 
-        let head_hash = if let Ok(mut db_file) = std::fs::File::open(head_path) {
+        if let Ok(mut db_file) = std::fs::File::open(db_location) {
             let mut hash_str = String::new();
             db_file.read_to_string(&mut hash_str).unwrap();
             let hash_vec = hex::decode(hash_str).unwrap();
@@ -35,6 +34,14 @@ impl State {
             hash
         } else {
             EMPTY_HASH
+        }
+    }
+
+    pub fn from_db_path(db_location: std::path::PathBuf, head: Option<Hash>) -> Self {
+        let head_hash = if let Some(h) = head {
+            h
+        } else {
+            Self::read_head(db_location.clone())
         };
         if head_hash != EMPTY_HASH {
             let mut state_path = db_location.clone();

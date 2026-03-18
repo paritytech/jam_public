@@ -18,13 +18,13 @@ fn main() {
     let matches = command!() // requires `cargo` feature
         .arg(
             arg!(
-                -i --input <FILE> "Input refinement json file"
+							[input]  "Input refinement json file"
             )
             .value_parser(value_parser!(PathBuf)),
         )
         .arg(
             arg!(
-                -o --output <FILE> "Output refinement payload file"
+               [output] "Output refinement payload file"
             )
             .value_parser(value_parser!(PathBuf)),
         )
@@ -34,6 +34,12 @@ fn main() {
             )
             .required(false),
         )
+        .arg(
+            arg!(
+							--head <String> "Overload root hash for this state transition (rather than using db head)"
+            )
+        )
+ 
         //.subcommand(
         //    Command::new("test")
         //        .about("does testing things")
@@ -51,15 +57,21 @@ fn main() {
 			println!("Missing output param");
 				return;
     };
+
+		let mut overload_head: Option<jam_types::Hash> = None;
+    if let Some (head_str) = matches.get_one::<String>("head")  {
+			let hash = hex::decode(head_str).unwrap();
+			overload_head = Some(hash.try_into().unwrap());
+    }
+ 
     println!("Output: {}", output_path.display());
 
-    if matches.get_flag("two") {
-        println!("Running two steps");
-    }
-
-    if matches.get_flag("two") {
-        println!("Running two steps");
-    }
+    let version = if matches.get_flag("two") {
+        dbg!("Running two steps");
+        token_ledger_state_v2::Version::TwoStepParallel
+    } else {
+        token_ledger_state_v2::Version::NoParallel
+    };
 
     let mut input = std::fs::File::open(&input_path).unwrap();
     let mut input_vec = Vec::new();
@@ -70,12 +82,11 @@ fn main() {
     let mut opt_db = std::fs::OpenOptions::new();
     opt_db.read(true).write(true);
     let db_path = std::path::PathBuf::new();
-    let mut state = token_ledger_builder_v2::state::State::from_db_path(db_path);
-    dbg!(state.get_root());
-    let version = token_ledger_state_v2::Version::NoParallel;
+    let mut state = token_ledger_builder_v2::state::State::from_db_path(db_path, overload_head);
+    println!("Initial root: {}", hex::encode(state.get_root()));
     token_ledger_state_v2::state_transition(&mut state, &operations, false);
-    dbg!(state.get_root());
     let witness = state.take_witness();
+    println!("Post execution root: {}", hex::encode(state.get_root()));
     dbg!(&witness);
 
     let refine_payload = token_ledger_service_v2::RefinePayload {
