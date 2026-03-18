@@ -21,7 +21,7 @@ pub struct Operation {
 struct ItemAccumulate {
     // trace single step version hash from previous calls.
     single_step: Result<Option<Hash>, ()>,
-    // two step persistence: TODO first item package and conflict list Vec<workitem_preimages>
+    // preimage persistence: TODO unused, would need better separation with single_step.
     two_step: (),
 }
 
@@ -79,10 +79,10 @@ fn on_work_item_record(record: WorkItemRecord, acc: &mut ItemAccumulate) {
     };
 
     match op.version {
-        token_ledger_state_v2::Version::NoParallel => {
+        token_ledger_state_v2::Version::Direct => {
             on_work_item_record_single_step(op, &mut acc.single_step, false);
         }
-        token_ledger_state_v2::Version::TwoStepParallel => {
+        token_ledger_state_v2::Version::Preimage => {
             on_work_item_record_single_step(op, &mut acc.single_step, true);
         }
     }

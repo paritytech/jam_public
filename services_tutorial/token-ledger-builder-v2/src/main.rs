@@ -30,7 +30,7 @@ fn main() {
         )
         .arg(
             arg!(
-                -t --two  "Two steps use"
+                --preimage  "Use a preimage"
             )
             .required(false),
         )
@@ -66,12 +66,12 @@ fn main() {
  
     println!("Output: {}", output_path.display());
 
-		let two_steps = matches.get_flag("two");
-    let version = if two_steps {
-        dbg!("Running two steps");
-        token_ledger_state_v2::Version::TwoStepParallel
+		let preimage_steps = matches.get_flag("preimage");
+    let version = if preimage_steps {
+        dbg!("Running preimage steps");
+        token_ledger_state_v2::Version::Preimage
     } else {
-        token_ledger_state_v2::Version::NoParallel
+        token_ledger_state_v2::Version::Direct
     };
 
     let mut input = std::fs::File::open(&input_path).unwrap();
@@ -97,7 +97,7 @@ fn main() {
     };
     refine_payload.encode_to(&mut output);
 
-		if two_steps {
+		if preimage_steps {
 
     std::mem::drop(output);
 

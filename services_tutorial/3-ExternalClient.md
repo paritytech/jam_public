@@ -45,7 +45,6 @@ This tutorial can run the same examples as the token ledger one. One will observ
 
 ### Prepare a workitem payload for refinement
 
-
 From `token-ledger-builder-v2`
 ```
 cargo run -- -i ./example_payloads/op_mint.json -o refinement_payload
@@ -58,8 +57,6 @@ The json file shall contain all operation to run for a single slot. `op_mint.jso
 
 Codewise, client read full state from local disk persistence, then run operation from json, then extract witness from recorded state access, then binary encode both witness and operation into an external file, finally update persistence so next call will run on an updated state.
 
-TODO split witness operation and update persistence one (update persistence over payload rather than json so it is clear what is being done)??
-
 ### Run on jam
 
 Simply use jst as in previous tutorial but with `token-ledger-service-v2` as service crate, and always use `submit-file` command for work item, the payload must be the `refinement_payload` file produce in previous step).
@@ -70,5 +67,46 @@ can be found in this git repository under `token-ledger-external-state` crate:
 - external_client module is the dummy client external state implementation. Description of this state is out of the scope of this tutorial, but code has been written to be simple and easy to read (serializing deserializing all at once from file, simple binary tree for balances, single out of tree value to store all tokens ids).
 - main.rs: produce payload for refinement:  just open external client state from last serializing, process state transition from operations in input json and a jam encoding binary payload in a file 
 - lib.rs: the actual service, split into accumalution and refinement modules.
+
+## Using a preimage 
+
+We do the same as previously but do not write witness into the work item.
+
+Instead we will publish a preimage for the service.
+
+Note that this design do not look to good (delay for preimage is rather long and need three calls when a single one was used previously.
+
+### Steps
+
+
+From `token-ledger-builder-v2`
+```
+cargo run -- -i ./example_payloads/op_mint.json -o refinement_payload -pi
+```
+
+Here `refinement_payload` will be the same file as previously, but will be use as a preimage, not a workitem.
+`refinement_payload.prepare` file will also be created, it contais an workitem for the service that sollicit a workitem.
+
+After creating the service we then submit `refinement_payload.prepare` as a workitem.
+
+This when refine does a lookup for the preimage (we couldn’t provide it at this point), but will not find it, then it will pass an item to accumulation.
+
+Accumulation see this item and call `solicite` host function to allow the given preimage (hash and length are used).
+
+Now, we can provide the workimage to jam (just provide command with `refinement_payload` as parameter).
+
+Next we will submit again the workitem `refinement_payload.prepare`, this time (if preimage had time to propagate), the refinement will find the preimage, decode it, obtain witness and operations and then do the same process as in previous example.
+
+## Exporting segment  (TODO?)
+
+What if we want to use again the witness and operations later. Here we will tell the workitem to record witness and operation in one or multiple segments.
+
+Segments created will be send to accumulation.
+
+Accumulation, will then postpone the processing for any reason (in the code we just add a counter and only the second time accumulation see this item it will process it: obviously this is just a demo and makes little sense).
+
+We then ask again for the segment(s) but do not attach witness, just the segment index (and we need to declare it in the workitem metas). Refinement will then import the segment decode it and send it again to accumulation, this time it will be processed.
+
+
 
 

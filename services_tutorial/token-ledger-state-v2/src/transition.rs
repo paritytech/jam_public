@@ -14,12 +14,10 @@ use token_ledger::api::{
 
 #[derive(Clone, Copy, Debug, Encode, Decode)]
 pub enum Version {
-    // When multiple workitems attempts a state transition from the same root,
-    // only the first processed is kept.
-    NoParallel,
-    // One conflict, no transition are processed and conflict get resolved in
-    // a second state transition.
-    TwoStepParallel,
+    // Directly send witness and operations in the workitem.
+    Direct,
+    // Witness and operations are read from a preimage.
+    Preimage,
 }
 
 pub type Operations = Vec<SignedOperation>;
