@@ -73,7 +73,7 @@ fn main() {
     println!("Output: {}", output_path.display());
 
 		let preimage_steps = matches.get_flag("preimage");
-		let with_segments = matches.get_flag("segments");
+		let with_segments = matches.get_flag("segment");
     let version = if preimage_steps {
 					if with_segments {
 			println!("Either segment or preimage");

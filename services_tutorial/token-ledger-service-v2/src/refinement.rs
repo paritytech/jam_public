@@ -3,7 +3,7 @@
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use jam_pvm_common::refine::lookup;
-use jam_pvm_common::{error, info};
+use jam_pvm_common::{error, info, ApiError};
 use token_ledger_state_v2::Hash;
 use token_ledger_state_v2::Version;
 
@@ -77,8 +77,20 @@ fn refine_transition(
 
         if export_segment {
             // here we should large payload put in multiple segments, but for tutorial we only use one and panic when payload too big.
-            let exported = jam_pvm_common::refine::export_slice(payload).unwrap();
-            exported_segment.push(exported);
+						match jam_pvm_common::refine::export_slice(payload) {
+							Ok(exported) => {
+								exported_segment.push(exported);
+								// TODO a real noops would be better
+								return (previous_root, previous_root, operations_len, version);
+							},
+							Err(ApiError::StorageFull) => {
+								error!("cannot add segment, storage full, ignoring");
+							},
+							Err(e) => {
+								error!("fail pushing segment {:?}", e);
+								panic!("fail pushing segment {:?}", e);
+							},
+						}
         }
 
         // TODO import payloads and call refine transition on them with export_segmonet false.
