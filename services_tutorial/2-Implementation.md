@@ -8,6 +8,11 @@ We gradually build a complete example, commenting on the basic choices facing th
 
 Note: This tutorial is not production-ready. It serves only as an illustration of basic concepts and choices the developers should make, but little care is given to security or performance. Do not use these examples in practice without dutifully improving them.
 
+The general design is for educational purpose, managing tokens over JAM mainnet is not a proper design, we will try to do something better in next tutorial part.
+
+This tutorial source code can be found in "services_tutorial/token-ledger" and "services_tutorial/token-ledger-common" crates. A utility justfile script can be use to test it under "services_tutorial/scripts/jst", use it with [just](https://github.com/casey/just) command (binaries used in introduction are expected to be in executable PATH).
+
+
 ## Overview
 
 The **Token Ledger Service** will: 
@@ -620,6 +625,8 @@ This is an example list of commands:
 It illustrates one mint and two transfer operations. 
 
 In the companion code we provide an even bigger example (`op_list.json`) which includes some invalid transactions, testing the logic to detect them. It is worth noting that all the items in these documents are processed in the same WorkPackage but that there is no provision in the code consider the impact of mutually affecting transactions on each other. For that reason, some transfers that should logically succeed after another transfer may not execute successfully because the changes in balance were not yet performed.
+
+See "services_tutorial/token-ledger/examples_payloads" for such examples, can be seen running quickly by using `just st` and `just sf <example_json_path>` under "services_tutorial/scripts/jst". 
 
 # Conclusion and Future Work
 

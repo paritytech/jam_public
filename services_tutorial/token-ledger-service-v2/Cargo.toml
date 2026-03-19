@@ -1,0 +1,16 @@
+[package]
+name = "token-ledger-service-v2"
+version = "0.1.0"
+edition = "2024"
+description = "The JAM Token-Ledger service, providing transfers of tokens between holder accounts."
+license = "Apache-2.0"
+
+
+[dependencies]
+token-ledger-state-v2 = { version = "0.1.0", path = "../token-ledger-state-v2" }
+jam-pvm-common = { version = "0.1.26", default-features = false, features = ["service", "logging"] }
+jam-types = { version = "0.1.26", default-features = false }
+polkavm-derive = "0.31.0"
+codec = { version = "0.1.1", default-features = false, package = "jam-codec" }
+hex = { version = "0.4.3", default-features = false }
+
