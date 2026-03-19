@@ -18,7 +18,7 @@ pub fn refine_payload(payload: &[u8]) -> (Vec<u8>, usize) {
     let mut to_solicit = Vec::new();
     let mut exported_segments = Vec::new();
     let mut processed_segments = Vec::new();
-    let (previous_root, new_root, operations_len, version) = refine_transition(
+    let (previous_root, new_root, operations_len, version, _) = refine_transition(
         payload,
         &mut to_solicit,
         &mut exported_segments,
@@ -44,11 +44,11 @@ pub fn refine_payload(payload: &[u8]) -> (Vec<u8>, usize) {
 fn refine_transition(
     mut payload: &[u8],
     to_solicit: &mut Vec<token_ledger_state_v2::Solicit>,
-    exported_segments: &mut Vec<u64>,
-    processed_segments: &mut Vec<u64>,
+    exported_segments: &mut Vec<Hash>,
+    processed_segments: &mut Vec<Hash>,
     allow_preimage: bool,
     handle_segments: bool,
-) -> (Hash, Hash, usize, Mode) {
+) -> (Hash, Hash, usize, Mode, usize) {
     let original_payload = payload;
     let Payload {
         version,
@@ -59,9 +59,10 @@ fn refine_transition(
         Err(e) => {
             error!("Failed to parse signed operations: {}", e);
             // TODO noops but should not forward this to accumulate
-            return (Default::default(), Default::default(), 0, Mode::Direct);
+            return (Default::default(), Default::default(), 0, Mode::Direct, 0);
         }
     };
+    let read_size = original_payload.len() - payload.len();
 
     info!("witness {:?}", &witness);
     let mut operations_len = operations.len();
@@ -86,9 +87,21 @@ fn refine_transition(
             // here we should large payload put in multiple segments, but for tutorial we only use one and panic when payload too big.
             match jam_pvm_common::refine::export_slice(original_payload) {
                 Ok(exported) => {
-                    exported_segments.push(exported);
+                    let exported_hash = token_ledger_state_v2::hash_multiple(&[original_payload]);
+                    info!(
+                        "Inserted segment with hash {}, at index {}",
+                        hex::encode(&exported_hash),
+                        exported
+                    );
+                    exported_segments.push(exported_hash);
                     // TODO a real noops would be better
-                    return (previous_root, previous_root, operations_len, version);
+                    return (
+                        previous_root,
+                        previous_root,
+                        operations_len,
+                        version,
+                        read_size,
+                    );
                 }
                 Err(ApiError::StorageFull) => {
                     error!("cannot add segment, storage full, ignoring");
@@ -99,7 +112,7 @@ fn refine_transition(
                 }
             }
 
-            return (previous_root, previous_root, 1, version);
+            return (previous_root, previous_root, 1, version, read_size);
         }
         // payload loaded from process segment will process next
     }
@@ -110,7 +123,7 @@ fn refine_transition(
                 Some(segment) => {
                     // note segment is padded, this is not an issue with payload decoding
                     info!("Loading transition from segment, root {:?}.", previous_root);
-                    let (proot, nroot, ops, _) = refine_transition(
+                    let (proot, nroot, ops, _, size) = refine_transition(
                         segment.as_slice(),
                         to_solicit,
                         exported_segments,
@@ -126,14 +139,14 @@ fn refine_transition(
                     new_root = nroot;
                     info!("Transition from segment new root: {:?}.", new_root);
                     operations_len += ops;
-                    // TODO this is incorrect (we push segment index in this item not the
-                    // service one. TODO likely we want to store package to.
-                    processed_segments.push(ix as u64);
+                    let segment_hash =
+                        token_ledger_state_v2::hash_multiple(&[&segment.as_slice()[0..size]]);
+                    processed_segments.push(segment_hash);
                 }
                 None => break,
             }
         }
-        return (previous_root, new_root, operations_len, version);
+        return (previous_root, new_root, operations_len, version, read_size);
     }
 
     let transition_result =
@@ -156,7 +169,7 @@ fn refine_transition(
                 continue;
             }
             info!("loading transition from preimage");
-            let (proot, nroot, ops, _) = refine_transition(
+            let (proot, nroot, ops, _, _) = refine_transition(
                 &preimage,
                 to_solicit,
                 exported_segments,
@@ -178,7 +191,7 @@ fn refine_transition(
         }
     }
 
-    return (previous_root, new_root, operations_len, version);
+    return (previous_root, new_root, operations_len, version, read_size);
 }
 
 #[test]

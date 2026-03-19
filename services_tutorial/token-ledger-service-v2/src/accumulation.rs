@@ -1,6 +1,6 @@
 //! accumulation
 
-use alloc::collections::btree_set::BTreeSet;
+use alloc::collections::btree_map::BTreeMap;
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use jam_pvm_common::accumulate::{get, set};
@@ -8,8 +8,8 @@ use jam_pvm_common::{error, info, warn, ApiError};
 use jam_types::AccumulateItem;
 use jam_types::WorkItemRecord;
 use token_ledger_state_v2::Hash;
-use token_ledger_state_v2::Solicit;
 use token_ledger_state_v2::Mode;
+use token_ledger_state_v2::Solicit;
 
 #[derive(Clone, Debug, Encode, Decode)]
 pub struct Operation {
@@ -17,8 +17,8 @@ pub struct Operation {
     pub previous_root: Hash,
     pub new_root: Hash,
     pub to_solicit: Vec<Solicit>,
-    pub exported_segments: Vec<u64>,
-    pub processed_segments: Vec<u64>,
+    pub exported_segments: Vec<Hash>,
+    pub processed_segments: Vec<Hash>,
 }
 
 // previous item step
@@ -134,27 +134,37 @@ fn on_work_item_record_single_step(
             // while in refinement before using import. At this point we just import directly without
             // checks.
             if op.exported_segments.len() > 0 || op.processed_segments.len() > 0 {
-                // TODO this should be index by (WorkpackageHash, ix)
-                let mut buffed_segments: BTreeSet<u64> =
-                    get("buffed_segments").unwrap_or(BTreeSet::new());
+                // We store hash of segment content with a reference count.
+                let mut buffed_segments: BTreeMap<Hash, u64> =
+                    get("buffed_segments").unwrap_or(BTreeMap::new());
                 info!("acc loaded buffed of size {}", buffed_segments.len());
                 for p in &op.processed_segments {
-                    if !buffed_segments.remove(p) {
-                        error!("Non buffered segment {} was refined, dropping all", p);
+                    let mut rem_seg = false;
+                    if let Some(rc) = buffed_segments.get_mut(p) {
+                        *rc -= 1;
+                        if *rc == 0 {
+                            rem_seg = true;
+                        }
+                    } else {
+                        error!("Non buffered segment {} was refined, dropping all", hex::encode(p));
                         *acc = Err(());
                         return;
                     }
+                    if rem_seg {
+                        buffed_segments.remove(p);
+                    }
                 }
                 for p in op.exported_segments {
-                    info!("Acc exported {}", p);
-                    buffed_segments.insert(p);
+                    info!("Acc exported {}", hex::encode(&p));
+                    if let Some(rc) = buffed_segments.get_mut(&p) {
+                        *rc += 1;
+                    } else {
+                        buffed_segments.insert(p, 1);
+                    }
                 }
                 // TODO properly handle error (especially for tutorial)
                 set("buffed_segments", &buffed_segments).unwrap();
                 info!("Acc updated buffed of size {}", buffed_segments.len());
-                for b in &buffed_segments {
-                    info!("Curr buffed: {b}");
-                }
             }
         }
         Mode::Direct => (),

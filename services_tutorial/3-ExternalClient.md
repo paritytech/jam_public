@@ -124,7 +124,7 @@ Note that if we use a larger number of exports (eg 3 to get margin), then accumu
 So we use number of exports 1 here.
 
 Then one should get list of buffered segments by querying the accumulation state.
-Here for testing I just get the exported segment number and workpackage hash from the log.
+Here for testing I just get the exported segment number and workpackage hash from the log (accumulate is actually doing tracking by hash of the data put in segment).
 
 To process all buffered segment we need to pass a specific workitem.
 Its payload do not contain anything dynamic and is always "0300000000".
@@ -138,8 +138,7 @@ for service 97a7303e.
 Refinement process will then see in the static payload it is time to process segments and simply iterate on all imports referenced by the workitem.
 Refinement then process them as previously and will send root update and forward root update and processed segment list to accumulation.
 
-Here accumulation checks all segments were previously seen, and if it is the case, proceed with the root update.
-
+Here accumulation checks all payload data were previously seen, and if it is the case, proceed with the root update.
 
 Using segments export and import we manage to buffer some inputs, and delay processing without using very little accumulation storage, most buffered data are segments in the data lake.
 
