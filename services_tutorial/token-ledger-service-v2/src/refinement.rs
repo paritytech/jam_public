@@ -5,31 +5,30 @@ use codec::{Decode, Encode};
 use jam_pvm_common::refine::lookup;
 use jam_pvm_common::{error, info};
 use token_ledger_state_v2::Hash;
+use token_ledger_state_v2::Version;
 
 #[derive(Encode, Decode)]
 pub struct Payload {
-    pub version: token_ledger_state_v2::Version,
+    pub version: Version,
     pub operations: token_ledger_state_v2::Operations,
     pub witness: token_ledger_state_v2::merkle::Witness,
 }
 
 pub fn refine_payload(payload: &[u8]) -> (Vec<u8>, usize) {
     let mut to_solicit = Vec::new();
-    let mut version = token_ledger_state_v2::Version::Direct;
-    let (previous_root, new_root, operations_len) =
-        refine_transition(payload, &mut to_solicit, true);
+    let mut exported_segments = Vec::new();
+    let mut processed_segments = Vec::new();
+    let (previous_root, new_root, operations_len, version) =
+        refine_transition(payload, &mut to_solicit, &mut exported_segments, true, true);
     info!("to root: {:?}", new_root);
     (
         crate::accumulation::Operation {
-            // TODO rem version ?
-            version: if to_solicit.len() > 0 {
-                token_ledger_state_v2::Version::Preimage
-            } else {
-                token_ledger_state_v2::Version::Direct
-            },
+            version,
             previous_root,
             new_root,
             to_solicit,
+            exported_segments,
+            processed_segments,
         }
         .encode(),
         operations_len,
@@ -39,8 +38,10 @@ pub fn refine_payload(payload: &[u8]) -> (Vec<u8>, usize) {
 fn refine_transition(
     mut payload: &[u8],
     to_solicit: &mut Vec<token_ledger_state_v2::Solicit>,
-    allow_primage: bool,
-) -> (Hash, Hash, usize) {
+    exported_segment: &mut Vec<u64>,
+    allow_preimage: bool,
+    export_segment: bool,
+) -> (Hash, Hash, usize, Version) {
     let Payload {
         version,
         operations,
@@ -49,8 +50,8 @@ fn refine_transition(
         Ok(ops) => ops,
         Err(e) => {
             error!("Failed to parse signed operations: {}", e);
-            // TODO should not forward this to accumulate
-            return (Default::default(), Default::default(), 0);
+            // TODO noops but should not forward this to accumulate
+            return (Default::default(), Default::default(), 0, Version::Direct);
         }
     };
 
@@ -70,11 +71,26 @@ fn refine_transition(
     info!("loaded state from witness");
     let previous_root = partial_state.get_root();
     info!("from root: {:?}", previous_root);
-    let need_preimage =
+
+    if version == Version::Segment {
+        // put in segment
+
+        if export_segment {
+            // here we should large payload put in multiple segments, but for tutorial we only use one and panic when payload too big.
+            let exported = jam_pvm_common::refine::export_slice(payload).unwrap();
+            exported_segment.push(exported);
+        }
+
+        // TODO import payloads and call refine transition on them with export_segmonet false.
+
+        return (previous_root, previous_root, operations_len, version);
+    }
+
+    let transition_result =
         token_ledger_state_v2::state_transition(&mut partial_state, &operations, false);
 
     let mut new_root = partial_state.get_root();
-    for solicit in need_preimage {
+    for solicit in transition_result.to_solicit {
         if solicit.on_root != previous_root {
             error!(
                 "Skip a solicit preimage on non current root: {:?}, {:?}",
@@ -85,11 +101,12 @@ fn refine_transition(
         info!("looking up preimage");
         if let Some(preimage) = jam_pvm_common::refine::lookup(&solicit.hash) {
             info!("got  preimage");
-            if !allow_primage {
+            if !allow_preimage {
                 continue;
             }
             info!("loading transition from preimage");
-            let (proot, nroot, ops) = refine_transition(&preimage, to_solicit, false);
+            let (proot, nroot, ops, _) =
+                refine_transition(&preimage, to_solicit, exported_segment, false, false);
 
             // Note this force to run preimage in sequence at this point
             if proot != new_root {
@@ -104,5 +121,5 @@ fn refine_transition(
         }
     }
 
-    return (previous_root, new_root, operations_len);
+    return (previous_root, new_root, operations_len, version);
 }

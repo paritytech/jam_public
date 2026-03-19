@@ -12,12 +12,14 @@ use token_ledger::api::{
     Solicit, TokenId, VerificationKey,
 };
 
-#[derive(Clone, Copy, Debug, Encode, Decode)]
+#[derive(Clone, Copy, Debug, Encode, Decode, PartialEq, Eq)]
 pub enum Version {
     // Directly send witness and operations in the workitem.
     Direct,
     // Witness and operations are read from a preimage.
     Preimage,
+    // Witness and operations are stored in segment and only processed later.
+    Segment,
 }
 
 pub type Operations = Vec<SignedOperation>;
@@ -30,16 +32,20 @@ pub trait StateOps {
     fn root(&self) -> Hash;
 }
 
+pub struct StateTransitionResult {
+    pub to_solicit: Vec<Solicit>,
+}
+
 pub fn state_transition<S: StateOps>(
     state: &mut S,
     operations: &Operations,
     checked_operations: bool,
-) -> Vec<Solicit> {
+) -> StateTransitionResult {
     info!("Processing external client state transition.",);
 
     let mut staged_transfers: BTreeMap<(TokenId, Counterparts), i64> = BTreeMap::new();
 
-    let mut result: Vec<Solicit> = Default::default();
+    let mut to_solicit: Vec<Solicit> = Default::default();
 
     let initial_root = state.root();
 
@@ -57,7 +63,7 @@ pub fn state_transition<S: StateOps>(
                 // only five block too.
 
                 if solicit.on_root == initial_root {
-                    result.push(solicit.clone());
+                    to_solicit.push(solicit.clone());
                 }
             }
             Operation::Mint {
@@ -134,7 +140,7 @@ pub fn state_transition<S: StateOps>(
         } // if zero, skip
     }
 
-    result
+    StateTransitionResult { to_solicit }
 }
 
 fn process_mint<S: StateOps>(state: &mut S, to: AccountId, token_id: TokenId, amount: u64) {

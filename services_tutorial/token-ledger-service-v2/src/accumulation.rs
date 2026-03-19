@@ -1,5 +1,6 @@
 //! accumulation
 
+use alloc::collections::btree_set::BTreeSet;
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use jam_pvm_common::accumulate::{get, set};
@@ -8,13 +9,16 @@ use jam_types::AccumulateItem;
 use jam_types::WorkItemRecord;
 use token_ledger_state_v2::Hash;
 use token_ledger_state_v2::Solicit;
+use token_ledger_state_v2::Version;
 
 #[derive(Clone, Debug, Encode, Decode)]
 pub struct Operation {
-    pub version: token_ledger_state_v2::Version,
+    pub version: Version,
     pub previous_root: Hash,
     pub new_root: Hash,
     pub to_solicit: Vec<Solicit>,
+    pub exported_segments: Vec<u64>,
+    pub processed_segments: Vec<u64>,
 }
 
 // previous item step
@@ -78,20 +82,14 @@ fn on_work_item_record(record: WorkItemRecord, acc: &mut ItemAccumulate) {
         return;
     };
 
-    match op.version {
-        token_ledger_state_v2::Version::Direct => {
-            on_work_item_record_single_step(op, &mut acc.single_step, false);
-        }
-        token_ledger_state_v2::Version::Preimage => {
-            on_work_item_record_single_step(op, &mut acc.single_step, true);
-        }
-    }
+    let version = op.version;
+    on_work_item_record_single_step(op, &mut acc.single_step, version);
 }
 
 fn on_work_item_record_single_step(
     op: Operation,
     acc: &mut Result<Option<Hash>, ()>,
-    two_step: bool,
+    version: Version,
 ) {
     if acc.is_err() {
         return;
@@ -112,20 +110,44 @@ fn on_work_item_record_single_step(
         return;
     }
 
-    if two_step {
-        for solicit in op.to_solicit {
-            // check in refine In real code we should not have
-            // on_root field at accumulation level.
-            assert!(op.previous_root == solicit.on_root);
-            if let Err(e) = jam_pvm_common::accumulate::solicit(&solicit.hash, solicit.len as usize)
-            {
-                error!("Could not solicit preimage: {:?}, {:?}", solicit.hash, e);
-            } else {
-                info!(
-                    "Preimage {:?} of len {} has been sollicited",
-                    solicit.hash, solicit.len
-                );
+    match version {
+        Version::Preimage => {
+            for solicit in op.to_solicit {
+                // check in refine In real code we should not have
+                // on_root field at accumulation level.
+                assert!(op.previous_root == solicit.on_root);
+                if let Err(e) =
+                    jam_pvm_common::accumulate::solicit(&solicit.hash, solicit.len as usize)
+                {
+                    error!("Could not solicit preimage: {:?}, {:?}", solicit.hash, e);
+                } else {
+                    info!(
+                        "Preimage {:?} of len {} has been sollicited",
+                        solicit.hash, solicit.len
+                    );
+                }
             }
         }
+        Version::Segment => {
+            // tracking segment so we could attach a proof that a segment is in accumulation for a
+            // while in refinement before using import. At this point we just import directly without
+            // checks.
+            if op.exported_segments.len() > 0 {
+                let mut buffed_segments: BTreeSet<u64> =
+                    get("buffed_segments").unwrap_or(BTreeSet::new());
+                info!("acc loaded buffed of size {}", buffed_segments.len());
+                for p in op.exported_segments {
+                    info!("acc exported {}", p);
+                    buffed_segments.insert(p);
+                }
+                for p in &op.processed_segments {
+                    buffed_segments.remove(p);
+                }
+                // TODO properly handle error (especially for tutorial)
+                set("buffed_segments", buffed_segments.encode()).unwrap();
+                info!("acc updated buffed of size {}", buffed_segments.len());
+            }
+        }
+        Version::Direct => (),
     }
 }

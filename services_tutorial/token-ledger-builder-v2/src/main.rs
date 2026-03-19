@@ -2,7 +2,7 @@
 //! - opening state from file and others.
 //! - produce refinement payload from json.
 
-use clap::{arg, command, value_parser, ArgAction, Command};
+use clap::{arg, command, value_parser};
 use codec::Encode;
 use std::env;
 use std::io::Read;
@@ -31,6 +31,12 @@ fn main() {
         .arg(
             arg!(
                 --preimage  "Use a preimage"
+            )
+            .required(false),
+        )
+        .arg(
+            arg!(
+                --segment  "Use a segment"
             )
             .required(false),
         )
@@ -67,10 +73,19 @@ fn main() {
     println!("Output: {}", output_path.display());
 
 		let preimage_steps = matches.get_flag("preimage");
+		let with_segments = matches.get_flag("segments");
     let version = if preimage_steps {
+					if with_segments {
+			println!("Either segment or preimage");
+				return;
+					}
         dbg!("Running preimage steps");
         token_ledger_state_v2::Version::Preimage
+		} else if with_segments {
+        dbg!("Running segment steps");
+        token_ledger_state_v2::Version::Segment
     } else {
+        dbg!("Running direct steps");
         token_ledger_state_v2::Version::Direct
     };
 
@@ -85,7 +100,7 @@ fn main() {
     let db_path = std::path::PathBuf::new();
     let mut state = token_ledger_builder_v2::state::State::from_db_path(db_path.clone(), overload_head);
     println!("Initial root: {}", hex::encode(state.get_root()));
-    let to_solicit = token_ledger_state_v2::state_transition(&mut state, &operations, false);
+    let _ = token_ledger_state_v2::state_transition(&mut state, &operations, false);
     let witness = state.take_witness();
     println!("Post execution root: {}", hex::encode(state.get_root()));
     dbg!(&witness);
@@ -120,7 +135,7 @@ fn main() {
 					hash: hash.into(), len,
 				}),
 			});
-			let to_solicit = token_ledger_state_v2::state_transition(&mut state, &operations, false);
+			let _ = token_ledger_state_v2::state_transition(&mut state, &operations, false);
 			// only root as we only check right root for solicit
     let witness = state.take_witness();
     let refine_payload = token_ledger_service_v2::RefinePayload {
