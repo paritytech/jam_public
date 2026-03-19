@@ -20,6 +20,8 @@ pub enum Version {
     Preimage,
     // Witness and operations are stored in segment and only processed later.
     Segment,
+    // Used to trigger a batch of segment processing.
+    ProcessSegments,
 }
 
 pub type Operations = Vec<SignedOperation>;

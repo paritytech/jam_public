@@ -11,7 +11,7 @@
 
 extern crate alloc;
 
-use jam_pvm_common::{Service, accumulate, declare_service, info};
+use jam_pvm_common::{accumulate, declare_service, info, Service};
 use jam_types::{CoreIndex, Hash, ServiceId, Slot, WorkOutput, WorkPackageHash, WorkPayload};
 
 pub use refinement::Payload as RefinePayload;
@@ -33,11 +33,14 @@ impl Service for TokenLedgerExternalClient {
         info!(
             "TokenLedger refine on service {service_id:x}h for package/item {package_hash} / {item_index}"
         );
+        // full hash display
+        info!("Package hash {}", hex::encode(package_hash.as_slice()));
 
         let (encoded, operations_len) = refinement::refine_payload(payload.0.as_slice());
 
-        info!("Refinement done over {} operations", operations_len);
-        encoded.into()
+				let output: WorkOutput = encoded.into();
+        info!("Refinement done over {} operations, payload of size {}", operations_len, output.0.len());
+				output
     }
 
     fn accumulate(slot: Slot, service_id: ServiceId, item_count: usize) -> Option<Hash> {

@@ -84,6 +84,7 @@ fn on_work_item_record(record: WorkItemRecord, acc: &mut ItemAccumulate) {
 
     let version = op.version;
     on_work_item_record_single_step(op, &mut acc.single_step, version);
+    jam_pvm_common::accumulate::checkpoint();
 }
 
 fn on_work_item_record_single_step(
@@ -128,24 +129,32 @@ fn on_work_item_record_single_step(
                 }
             }
         }
-        Version::Segment => {
+        Version::ProcessSegments | Version::Segment => {
             // tracking segment so we could attach a proof that a segment is in accumulation for a
             // while in refinement before using import. At this point we just import directly without
             // checks.
-            if op.exported_segments.len() > 0 {
+            if op.exported_segments.len() > 0 || op.processed_segments.len() > 0 {
+                // TODO this should be index by (WorkpackageHash, ix)
                 let mut buffed_segments: BTreeSet<u64> =
                     get("buffed_segments").unwrap_or(BTreeSet::new());
                 info!("acc loaded buffed of size {}", buffed_segments.len());
+                for p in &op.processed_segments {
+                    if !buffed_segments.remove(p) {
+                        error!("Non buffered segment {} was refined, dropping all", p);
+                        *acc = Err(());
+                        return;
+                    }
+                }
                 for p in op.exported_segments {
-                    info!("acc exported {}", p);
+                    info!("Acc exported {}", p);
                     buffed_segments.insert(p);
                 }
-                for p in &op.processed_segments {
-                    buffed_segments.remove(p);
-                }
                 // TODO properly handle error (especially for tutorial)
-                set("buffed_segments", buffed_segments.encode()).unwrap();
-                info!("acc updated buffed of size {}", buffed_segments.len());
+                set("buffed_segments", &buffed_segments).unwrap();
+                info!("Acc updated buffed of size {}", buffed_segments.len());
+                for b in &buffed_segments {
+                    info!("Curr buffed: {b}");
+                }
             }
         }
         Version::Direct => (),

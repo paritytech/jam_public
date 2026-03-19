@@ -112,13 +112,35 @@ We then ask again for the segment(s) but do not attach witness, just the segment
 
 Refinement will just export the payload in a segment.
 
-Putting this in place, when testing, one would observe an `ApiResult::StorageFull`.
+Here we build payload as before but adding `--segment` parameter.  
+
+Then we process its workitem.
+
+One would observe an `ApiResult::StorageFull` when trying to export in the refinement call.
 This is due to the limit of exports define for the package, define in workitem `export_count`.
 Therefore builder should update this value.
-Here we just have to pass this info to the command that send this.
+Here we just have to pass this info to the command building the workitem.
 Note that if we use a larger number of exports (eg 3 to get margin), then accumulate will fail with a `BadExports` error.
 So we use number of exports 1 here.
 
+Then one should get list of buffered segments by querying the accumulation state.
+Here for testing I just get the exported segment number and workpackage hash from the log.
 
+To process all buffered segment we need to pass a specific workitem.
+Its payload do not contain anything dynamic and is always "0300000000".
+The dynamic part is the list of the workitems to process, this list as the `export_count` is always written in the workitem definition.
+With the tool I am using to rpc a new item for my node the syntax is :
+```
+mytool item --import-package-hash c5d3d11b9163e8f30fb8cb9bb5e06321441dd44686b0983d82d54e297ddb817f --import-package-index 0 97a7303e  0x0300000000
+```
+for service 97a7303e.
+
+Refinement process will then see in the static payload it is time to process segments and simply iterate on all imports referenced by the workitem.
+Refinement then process them as previously and will send root update and forward root update and processed segment list to accumulation.
+
+Here accumulation checks all segments were previously seen, and if it is the case, proceed with the root update.
+
+
+Using segments export and import we manage to buffer some inputs, and delay processing without using very little accumulation storage, most buffered data are segments in the data lake.
 
 

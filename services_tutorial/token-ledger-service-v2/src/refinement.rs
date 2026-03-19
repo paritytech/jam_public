@@ -18,8 +18,14 @@ pub fn refine_payload(payload: &[u8]) -> (Vec<u8>, usize) {
     let mut to_solicit = Vec::new();
     let mut exported_segments = Vec::new();
     let mut processed_segments = Vec::new();
-    let (previous_root, new_root, operations_len, version) =
-        refine_transition(payload, &mut to_solicit, &mut exported_segments, true, true);
+    let (previous_root, new_root, operations_len, version) = refine_transition(
+        payload,
+        &mut to_solicit,
+        &mut exported_segments,
+        &mut processed_segments,
+        true,
+        true,
+    );
     info!("to root: {:?}", new_root);
     (
         crate::accumulation::Operation {
@@ -38,10 +44,12 @@ pub fn refine_payload(payload: &[u8]) -> (Vec<u8>, usize) {
 fn refine_transition(
     mut payload: &[u8],
     to_solicit: &mut Vec<token_ledger_state_v2::Solicit>,
-    exported_segment: &mut Vec<u64>,
+    exported_segments: &mut Vec<u64>,
+    processed_segments: &mut Vec<u64>,
     allow_preimage: bool,
-    export_segment: bool,
+    handle_segments: bool,
 ) -> (Hash, Hash, usize, Version) {
+    let original_payload = payload;
     let Payload {
         version,
         operations,
@@ -59,7 +67,7 @@ fn refine_transition(
     let mut operations_len = operations.len();
     info!(
         "read payload of size {}, with {} operations",
-        payload.len(),
+        original_payload.len(),
         operations_len
     );
     let opt_partial_state = token_ledger_state_v2::merkle::State::from_witness(witness);
@@ -73,35 +81,66 @@ fn refine_transition(
     info!("from root: {:?}", previous_root);
 
     if version == Version::Segment {
-        // put in segment
-
-        if export_segment {
+        if handle_segments {
+            // put in segment
             // here we should large payload put in multiple segments, but for tutorial we only use one and panic when payload too big.
-						match jam_pvm_common::refine::export_slice(payload) {
-							Ok(exported) => {
-								exported_segment.push(exported);
-								// TODO a real noops would be better
-								return (previous_root, previous_root, operations_len, version);
-							},
-							Err(ApiError::StorageFull) => {
-								error!("cannot add segment, storage full, ignoring");
-							},
-							Err(e) => {
-								error!("fail pushing segment {:?}", e);
-								panic!("fail pushing segment {:?}", e);
-							},
-						}
+            match jam_pvm_common::refine::export_slice(original_payload) {
+                Ok(exported) => {
+                    exported_segments.push(exported);
+                    // TODO a real noops would be better
+                    return (previous_root, previous_root, operations_len, version);
+                }
+                Err(ApiError::StorageFull) => {
+                    error!("cannot add segment, storage full, ignoring");
+                }
+                Err(e) => {
+                    error!("fail pushing segment {:?}", e);
+                    panic!("fail pushing segment {:?}", e);
+                }
+            }
+
+            return (previous_root, previous_root, 1, version);
         }
+        // payload loaded from process segment will process next
+    }
+    if version == Version::ProcessSegments {
+        let mut new_root = previous_root;
+        for ix in 0.. {
+            match jam_pvm_common::refine::import(ix) {
+                Some(segment) => {
+                    // note segment is padded, this is not an issue with payload decoding
+                    info!("Loading transition from segment, root {:?}.", previous_root);
+                    let (proot, nroot, ops, _) = refine_transition(
+                        segment.as_slice(),
+                        to_solicit,
+                        exported_segments,
+                        processed_segments,
+                        false,
+                        false,
+                    );
 
-        // TODO import payloads and call refine transition on them with export_segmonet false.
-
-        return (previous_root, previous_root, operations_len, version);
+                    // Note this force to run segment in sequence at this point
+                    if proot != new_root {
+                        error!("processing segment witness fail due to updated root");
+                    }
+                    new_root = nroot;
+                    info!("Transition from segment new root: {:?}.", new_root);
+                    operations_len += ops;
+                    // TODO this is incorrect (we push segment index in this item not the
+                    // service one. TODO likely we want to store package to.
+                    processed_segments.push(ix as u64);
+                }
+                None => break,
+            }
+        }
+        return (previous_root, new_root, operations_len, version);
     }
 
     let transition_result =
         token_ledger_state_v2::state_transition(&mut partial_state, &operations, false);
 
     let mut new_root = partial_state.get_root();
+
     for solicit in transition_result.to_solicit {
         if solicit.on_root != previous_root {
             error!(
@@ -117,8 +156,14 @@ fn refine_transition(
                 continue;
             }
             info!("loading transition from preimage");
-            let (proot, nroot, ops, _) =
-                refine_transition(&preimage, to_solicit, exported_segment, false, false);
+            let (proot, nroot, ops, _) = refine_transition(
+                &preimage,
+                to_solicit,
+                exported_segments,
+                processed_segments,
+                false,
+                false,
+            );
 
             // Note this force to run preimage in sequence at this point
             if proot != new_root {
@@ -134,4 +179,20 @@ fn refine_transition(
     }
 
     return (previous_root, new_root, operations_len, version);
+}
+
+#[test]
+fn encode_process_payload() {
+    let process_payload = Payload {
+        version: Version::ProcessSegments,
+        operations: Default::default(),
+        witness: Default::default(),
+    };
+    let encoded = process_payload.encode();
+    let hex_encoded = hex::encode(&encoded);
+
+    assert_eq!(hex_encoded, "0300000000");
+
+    hex::decode(&hex_encoded).unwrap();
+    Payload::decode(&mut encoded.as_slice()).unwrap();
 }
