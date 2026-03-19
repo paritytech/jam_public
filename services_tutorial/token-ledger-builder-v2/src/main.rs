@@ -80,13 +80,13 @@ fn main() {
 				return;
 					}
         dbg!("Running preimage steps");
-        token_ledger_state_v2::Version::Preimage
+        token_ledger_state_v2::Mode::Preimage
 		} else if with_segments {
         dbg!("Running segment steps");
-        token_ledger_state_v2::Version::Segment
+        token_ledger_state_v2::Mode::Segment
     } else {
         dbg!("Running direct steps");
-        token_ledger_state_v2::Version::Direct
+        token_ledger_state_v2::Mode::Direct
     };
 
     let mut input = std::fs::File::open(&input_path).unwrap();

@@ -9,11 +9,11 @@ use jam_types::AccumulateItem;
 use jam_types::WorkItemRecord;
 use token_ledger_state_v2::Hash;
 use token_ledger_state_v2::Solicit;
-use token_ledger_state_v2::Version;
+use token_ledger_state_v2::Mode;
 
 #[derive(Clone, Debug, Encode, Decode)]
 pub struct Operation {
-    pub version: Version,
+    pub version: Mode,
     pub previous_root: Hash,
     pub new_root: Hash,
     pub to_solicit: Vec<Solicit>,
@@ -90,7 +90,7 @@ fn on_work_item_record(record: WorkItemRecord, acc: &mut ItemAccumulate) {
 fn on_work_item_record_single_step(
     op: Operation,
     acc: &mut Result<Option<Hash>, ()>,
-    version: Version,
+    version: Mode,
 ) {
     if acc.is_err() {
         return;
@@ -112,7 +112,7 @@ fn on_work_item_record_single_step(
     }
 
     match version {
-        Version::Preimage => {
+        Mode::Preimage => {
             for solicit in op.to_solicit {
                 // check in refine In real code we should not have
                 // on_root field at accumulation level.
@@ -129,7 +129,7 @@ fn on_work_item_record_single_step(
                 }
             }
         }
-        Version::ProcessSegments | Version::Segment => {
+        Mode::ProcessSegments | Mode::Segment => {
             // tracking segment so we could attach a proof that a segment is in accumulation for a
             // while in refinement before using import. At this point we just import directly without
             // checks.
@@ -157,6 +157,6 @@ fn on_work_item_record_single_step(
                 }
             }
         }
-        Version::Direct => (),
+        Mode::Direct => (),
     }
 }

@@ -5,11 +5,11 @@ use codec::{Decode, Encode};
 use jam_pvm_common::refine::lookup;
 use jam_pvm_common::{error, info, ApiError};
 use token_ledger_state_v2::Hash;
-use token_ledger_state_v2::Version;
+use token_ledger_state_v2::Mode;
 
 #[derive(Encode, Decode)]
 pub struct Payload {
-    pub version: Version,
+    pub version: Mode,
     pub operations: token_ledger_state_v2::Operations,
     pub witness: token_ledger_state_v2::merkle::Witness,
 }
@@ -48,7 +48,7 @@ fn refine_transition(
     processed_segments: &mut Vec<u64>,
     allow_preimage: bool,
     handle_segments: bool,
-) -> (Hash, Hash, usize, Version) {
+) -> (Hash, Hash, usize, Mode) {
     let original_payload = payload;
     let Payload {
         version,
@@ -59,7 +59,7 @@ fn refine_transition(
         Err(e) => {
             error!("Failed to parse signed operations: {}", e);
             // TODO noops but should not forward this to accumulate
-            return (Default::default(), Default::default(), 0, Version::Direct);
+            return (Default::default(), Default::default(), 0, Mode::Direct);
         }
     };
 
@@ -80,7 +80,7 @@ fn refine_transition(
     let previous_root = partial_state.get_root();
     info!("from root: {:?}", previous_root);
 
-    if version == Version::Segment {
+    if version == Mode::Segment {
         if handle_segments {
             // put in segment
             // here we should large payload put in multiple segments, but for tutorial we only use one and panic when payload too big.
@@ -103,7 +103,7 @@ fn refine_transition(
         }
         // payload loaded from process segment will process next
     }
-    if version == Version::ProcessSegments {
+    if version == Mode::ProcessSegments {
         let mut new_root = previous_root;
         for ix in 0.. {
             match jam_pvm_common::refine::import(ix) {
@@ -184,7 +184,7 @@ fn refine_transition(
 #[test]
 fn encode_process_payload() {
     let process_payload = Payload {
-        version: Version::ProcessSegments,
+        version: Mode::ProcessSegments,
         operations: Default::default(),
         witness: Default::default(),
     };

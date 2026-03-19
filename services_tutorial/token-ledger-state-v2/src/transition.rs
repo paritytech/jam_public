@@ -13,7 +13,7 @@ use token_ledger::api::{
 };
 
 #[derive(Clone, Copy, Debug, Encode, Decode, PartialEq, Eq)]
-pub enum Version {
+pub enum Mode {
     // Directly send witness and operations in the workitem.
     Direct,
     // Witness and operations are read from a preimage.
