@@ -54,7 +54,7 @@ alias s := submit-item
 # Submit a WorkItem with data read from a file. If Service is not specified, use the last service.
 # This is particularly useful for submitting large or complex data, such as JSON-encoded operations for the token ledger service.
 [doc('Submit a WorkItem with data read from a file')]
-submit-file FILE SERVICE='':
+submit-file FILE NB_EXPORTS='0' SERVICE='':
     #!/usr/bin/env bash
     set -euo pipefail
     if [ -z "{{SERVICE}}" ]; then
@@ -63,7 +63,7 @@ submit-file FILE SERVICE='':
         service_id="{{SERVICE}}"
     fi
 
-    jamt item "$service_id" "{{FILE}}"
+    jamt item "$service_id" "{{FILE}}" -e {{NB_EXPORTS}}
 alias sf := submit-file
 
 [doc('Provide a preimage with data read from a file')]

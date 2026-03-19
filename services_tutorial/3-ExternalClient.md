@@ -108,5 +108,17 @@ Accumulation, will then postpone the processing for any reason (in the code we j
 We then ask again for the segment(s) but do not attach witness, just the segment index (and we need to declare it in the workitem metas). Refinement will then import the segment decode it and send it again to accumulation, this time it will be processed.
 
 
+### exporting segments
+
+Refinement will just export the payload in a segment.
+
+Putting this in place, when testing, one would observe an `ApiResult::StorageFull`.
+This is due to the limit of exports define for the package, define in workitem `export_count`.
+Therefore builder should update this value.
+Here we just have to pass this info to the command that send this.
+Note that if we use a larger number of exports (eg 3 to get margin), then accumulate will fail with a `BadExports` error.
+So we use number of exports 1 here.
+
+
 
 
