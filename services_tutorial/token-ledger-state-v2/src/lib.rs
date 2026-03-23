@@ -15,7 +15,7 @@ mod transition;
 
 pub use transition::{Operations, state_transition, StateOps, Mode};
 
-pub use token_ledger::api::Solicit;
+pub use token_ledger_common::api::Solicit;
 
 pub type TreeIndex = u16;
 

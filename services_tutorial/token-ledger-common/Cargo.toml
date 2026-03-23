@@ -1,5 +1,5 @@
 [package]
-name = "token-ledger"
+name = "token-ledger-v1"
 version = "0.1.0"
 edition = "2024"
 description = "The JAM Token-Ledger service, providing transfers of tokens between holder accounts."

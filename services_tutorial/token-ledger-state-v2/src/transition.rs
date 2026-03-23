@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use jam_pvm_common::{info, warn};
 use jam_types::Hash;
-use token_ledger::api::{
+use token_ledger_common::{
     canonical_transfer, verify_signature, AccountId, Counterparts, Operation, SignedOperation,
     Solicit, TokenId, VerificationKey,
 };
