@@ -92,7 +92,7 @@ fn main() {
     let mut input = std::fs::File::open(&input_path).unwrap();
     let mut input_vec = Vec::new();
     input.read_to_end(&mut input_vec).unwrap();
-    let operations = token_ledger::json::parse_signed_operations(input_vec.as_slice()).unwrap();
+    let operations = token_ledger_common::json::parse_signed_operations(input_vec.as_slice()).unwrap();
     dbg!(operations.len());
     let mut output = std::fs::File::create(&output_path).unwrap();
     let mut opt_db = std::fs::OpenOptions::new();
@@ -125,12 +125,12 @@ fn main() {
 			let len = data.len() as u64;
 		
 			let mut state = token_ledger_builder_v2::state::State::from_db_path(db_path, overload_head);
-			let mut operations: Vec<token_ledger::api::SignedOperation> = Vec::with_capacity(1);
+			let mut operations: Vec<token_ledger_common::SignedOperation> = Vec::with_capacity(1);
 
-			operations.push(token_ledger::api::SignedOperation {
+			operations.push(token_ledger_common::SignedOperation {
 				// Dummy, unchecked in tutorial
-				signature: token_ledger::api::Signature([0; 64].into()),
-				operation: token_ledger::api::Operation::Solicit(token_ledger::api::Solicit {
+				signature: token_ledger_common::Signature([0; 64].into()),
+				operation: token_ledger_common::Operation::Solicit(token_ledger_common::Solicit {
 					on_root: state.get_root(),
 					hash: hash.into(), len,
 				}),

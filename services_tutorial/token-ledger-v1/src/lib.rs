@@ -10,8 +10,7 @@ use jam_types::{
     AccumulateItem, CoreIndex, Hash, ServiceId, Slot, WorkOutput, WorkPackageHash, WorkPayload,
 };
 
-pub mod api;
-pub mod json;
+use token_ledger_common::json;
 
 mod accumulation;
 mod refinement;

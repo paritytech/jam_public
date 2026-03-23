@@ -1,6 +1,5 @@
 // This module handles the JSON-related logic for the token ledger service.
-use crate::api::{Operation, Signature, SignedOperation, TokenId};
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+use crate::{Operation, Signature, SignedOperation, TokenId};
 use alloc::{format, string::String, vec::Vec};
 use jam_pvm_common::info;
 use serde::Deserialize;

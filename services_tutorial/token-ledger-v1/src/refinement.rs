@@ -1,12 +1,12 @@
 // Code support for the refinement phase, including data types and expensive computations.
-use crate::api::{Counterparts, TokenId};
+use token_ledger_common::{Counterparts, TokenId};
 use alloc::{collections::BTreeMap, vec::Vec};
 use codec::Encode;
 use jam_pvm_common::{error, info, warn};
 use jam_types::{ServiceId, WorkOutput, WorkPackageHash, WorkPayload};
 
 // ledger api directly used by refine.
-pub use crate::api::{
+pub use token_ledger_common::{
     canonical_transfer, verify_signature, Operation, SignedOperation, VerificationKey,
 };
 
@@ -47,7 +47,7 @@ pub fn refine(
             Operation::Solicit { .. } => (),
             Operation::Mint { amount, .. } => {
                 let admin_key: VerificationKey =
-                    VerificationKey::try_from(crate::api::admin()).expect("Hard-coded Admin key");
+                    VerificationKey::try_from(token_ledger_common::admin()).expect("Hard-coded Admin key");
 
                 if verify_signature(&operation, &signature, admin_key).is_err() {
                     warn!("Invalid signature for operation");

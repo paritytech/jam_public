@@ -7,7 +7,7 @@ license = "Apache-2.0"
 
 
 [dependencies]
-token-ledger = { version = "0.1.0", path = "../token-ledger" }
+token-ledger-common = { version = "0.1.0", path = "../token-ledger-common" }
 token-ledger-state-v2 = { version = "0.1.0", path = "../token-ledger-state-v2" }
 token-ledger-service-v2 = { version = "0.1.0", path = "../token-ledger-service-v2" }
 jam-pvm-common = { version = "0.1.26", default-features = false, features = ["service", "logging"] }

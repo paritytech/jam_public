@@ -1,3 +1,7 @@
+extern crate alloc;
+
+pub mod json;
+
 // using consensus to avoid importing jam-std-common (quite heay import TODO feature gate it a
 // bit?).
 pub use ed25519_consensus::{VerificationKey, VerificationKeyBytes};
@@ -27,9 +31,9 @@ pub enum Operation {
 /// Is expected to be applied on a given state root.
 #[derive(Clone, Debug, Encode, Decode)]
 pub struct Solicit {
-			pub on_root: [u8; 32], 
-			pub hash: [u8; 32],
-			pub len: u64,
+    pub on_root: [u8; 32],
+    pub hash: [u8; 32],
+    pub len: u64,
 }
 
 /// A Refinement Operation with its authorization signature

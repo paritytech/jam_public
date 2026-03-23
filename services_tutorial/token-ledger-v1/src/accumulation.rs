@@ -1,7 +1,7 @@
 // Code support for the accumulation phase. This includes the necessary data types
 // as well as support for storage access and the actual accumulation logic.
 
-use crate::api::{balance_key, AccountId, TokenId};
+use token_ledger_common::{balance_key, AccountId, TokenId};
 use crate::refinement::Operation;
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 use alloc::vec::Vec;

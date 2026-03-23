@@ -75,7 +75,7 @@ pub fn state_transition<S: StateOps>(
             } => {
                 if !checked_operations {
                     let admin_key: VerificationKey =
-                        VerificationKey::try_from(token_ledger::api::admin())
+                        VerificationKey::try_from(token_ledger_common::admin())
                             .expect("Hard-coded Admin key");
 
                     if verify_signature(&operation, &signature, admin_key).is_err() {
