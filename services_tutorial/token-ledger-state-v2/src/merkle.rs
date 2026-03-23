@@ -137,16 +137,13 @@ pub trait ValueTraits: Clone + Decode + Encode + MerkleValue {}
 impl<V: Clone + Decode + Encode + MerkleValue> ValueTraits for V {}
 
 pub struct StateTree<V: ValueTraits> {
-    // TODO rem (TreeIndex is always hashextract of key...), yet avoid checking for existing key
-    pub indexes: BTreeMap<Vec<u8>, TreeIndex>,
-    pub values: BTreeMap<TreeIndex, Value<V>>,
+    pub values: BTreeMap<TreeIndex, KeyValue<V>>,
     pub tree: MerkleTree,
 }
 
 impl<V: ValueTraits> Default for StateTree<V> {
     fn default() -> Self {
         Self {
-            indexes: Default::default(),
             values: Default::default(),
             tree: Default::default(),
         }
@@ -154,13 +151,15 @@ impl<V: ValueTraits> Default for StateTree<V> {
 }
 
 impl<V: ValueTraits> StateTree<V> {
-    fn get_value(&self, k: &[u8]) -> Option<&Value<V>> {
-        let Some(i) = self.indexes.get(k) else {
-            return None;
-        };
-
-        let v = self.values.get(i);
-        return v;
+    fn get_value(&self, k: &[u8]) -> Option<&KeyValue<V>> {
+        let ix = tree_index_from_key(&k);
+        if let Some(v) = self.values.get(&ix) {
+            if v.key.as_slice() != k {
+                return None;
+            }
+            return Some(v);
+        }
+        None
     }
 
     pub fn get(&self, k: &[u8]) -> Option<&V> {
@@ -182,9 +181,8 @@ impl<V: ValueTraits> StateTree<V> {
                 return false;
             }
         } else {
-            let value = Value { key: k, value: v };
+            let value = KeyValue { key: k, value: v };
             self.tree.insert(ix, value.merkle_value());
-            self.indexes.insert(value.key.clone(), ix);
             self.values.insert(ix, value);
         }
         true
@@ -263,12 +261,12 @@ impl MerkleValue for TokenId {
 }
 
 #[derive(Clone, Encode, Decode)]
-pub struct Value<V> {
+pub struct KeyValue<V> {
     pub value: V,
     pub key: Vec<u8>,
 }
 
-impl<V: MerkleValue> MerkleValue for Value<V> {
+impl<V: MerkleValue> MerkleValue for KeyValue<V> {
     fn merkle_value(&self) -> Hash {
         hash_multiple(&[self.value.merkle_value().as_slice(), self.key.as_slice()])
     }

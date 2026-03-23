@@ -2,7 +2,6 @@
 
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
-use jam_pvm_common::refine::lookup;
 use jam_pvm_common::{error, info, ApiError};
 use token_ledger_state_v2::Hash;
 use token_ledger_state_v2::Mode;

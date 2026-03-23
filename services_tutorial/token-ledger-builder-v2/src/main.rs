@@ -42,7 +42,7 @@ fn main() {
         )
         .arg(
             arg!(
-							--head <String> "Overload root hash for this state transition (rather than using db head)"
+							--head <String> "Starting state root hash for this state transition, if undefined, latest written state is used (referenced in HEAD file)" 
             )
         )
  

@@ -4,7 +4,7 @@ use alloc::collections::btree_map::BTreeMap;
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use jam_pvm_common::accumulate::{get, set};
-use jam_pvm_common::{error, info, warn, ApiError};
+use jam_pvm_common::{error, info, warn};
 use jam_types::AccumulateItem;
 use jam_types::WorkItemRecord;
 use token_ledger_state_v2::Hash;
@@ -23,16 +23,13 @@ pub struct Operation {
 
 // previous item step
 struct ItemAccumulate {
-    // trace single step version hash from previous calls.
-    single_step: Result<Option<Hash>, ()>,
-    // preimage persistence: TODO unused, would need better separation with single_step.
-    two_step: (),
+    // if an error do not attempt to advance next state transition.
+    previous_state_root: Result<Option<Hash>, ()>,
 }
 
 pub fn on_accumulate_items(items: Vec<AccumulateItem>) {
     let mut items_result = ItemAccumulate {
-        single_step: Ok(None),
-        two_step: (),
+        previous_state_root: Ok(None),
     };
 
     for item in items {
@@ -47,7 +44,7 @@ pub fn on_accumulate_items(items: Vec<AccumulateItem>) {
     }
 
     // single step resolve
-    match items_result.single_step {
+    match items_result.previous_state_root {
         Ok(Some(new_root)) => {
             // TODO manage single step error
             set("client_root", new_root).unwrap();
@@ -83,7 +80,7 @@ fn on_work_item_record(record: WorkItemRecord, acc: &mut ItemAccumulate) {
     };
 
     let version = op.version;
-    on_work_item_record_single_step(op, &mut acc.single_step, version);
+    on_work_item_record_single_step(op, &mut acc.previous_state_root, version);
     jam_pvm_common::accumulate::checkpoint();
 }
 
