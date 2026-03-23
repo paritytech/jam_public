@@ -207,6 +207,7 @@ We did not cover the client access to segment.
 This is largely a demo, and usecase is not so good for the following reason:
 
 - tracking segment in accumulation: the storage in jamt service is way to big. One cound just rely on two monotonic counters for exported segments and processed segments. Then resolve all info from exported segments or even refinement workitem.
+The idea is that `export` of segment at service level is already a service trusted operation and `import` from the same service do not strictly need to be validated during accumulation, we only want to avoid double processing. (one would still need to check that exports are done over the right root(s) during accumulation).
 
 - map reduce: the refinement consuming segments is forcing a sequence of segments, so it makes no sense to put the whole witness in segment, only the root change is really needed.
 Proper usecase would be on process that refine to smaller exported segment dataset and merge segments through an infaillible refinement processing.
