@@ -110,7 +110,7 @@ impl State {
             .write(true)
             .open(&state_path)
         {
-            // ignore already a state with tihs content
+            // ignore already a state with this content
         } else {
             let mut file = std::fs::File::create_new(&state_path).unwrap();
             file.seek(std::io::SeekFrom::Start(0)).unwrap();
