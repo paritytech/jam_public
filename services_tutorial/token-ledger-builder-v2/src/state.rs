@@ -85,7 +85,7 @@ impl State {
 
         result.known_tokens.merkle.token_ids = witness.token_ids;
 
-        // init balances witness tokerns id initial hashes
+        // init balances witness tokens id initial hashes
         let _ = result.take_witness();
 
         return Some(result);
@@ -110,7 +110,7 @@ impl State {
             .write(true)
             .open(&state_path)
         {
-            // ignore already a state with tihs content
+            // ignore already a state with this content
         } else {
             let mut file = std::fs::File::create_new(&state_path).unwrap();
             file.seek(std::io::SeekFrom::Start(0)).unwrap();
