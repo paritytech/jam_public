@@ -76,7 +76,7 @@ fn main() {
 		let with_segments = matches.get_flag("segment");
     let version = if preimage_steps {
 					if with_segments {
-			println!("Either segment or preimage");
+			println!("Incompatible options selected: 'segment' and 'preimage' should not be specified together");
 				return;
 					}
         dbg!("Running preimage steps");
