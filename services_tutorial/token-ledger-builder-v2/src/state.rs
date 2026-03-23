@@ -85,7 +85,7 @@ impl State {
 
         result.known_tokens.merkle.token_ids = witness.token_ids;
 
-        // init balances witness tokerns id initial hashes
+        // init balances witness tokens id initial hashes
         let _ = result.take_witness();
 
         return Some(result);
