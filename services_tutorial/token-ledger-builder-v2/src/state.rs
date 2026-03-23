@@ -170,15 +170,14 @@ impl StateOps for State {
 }
 
 #[derive(Default)]
-pub struct Tree {
-    merkle: MerkleTree,
+pub struct TreeWitness {
     initial_hashes: BTreeMap<TreeIndex, Hash>,
     witness: RefCell<BTreeMap<TreeIndex, Hash>>,
 }
 
-impl Tree {
-    fn record_witness_hash(&self, ix: TreeIndex) -> &Hash {
-        let hash = self.merkle.get_hash(ix);
+impl TreeWitness {
+    fn record_witness_hash<'a>(&self, merkle: &'a MerkleTree, ix: TreeIndex) -> &'a Hash {
+        let hash = merkle.get_hash(ix);
         if hash == &EMPTY_HASH {
             return hash;
         }
@@ -191,59 +190,41 @@ impl Tree {
         return hash;
     }
 
-    fn root(&self) -> &Hash {
-        return self.record_witness_hash((TREE_HASHES - 1) as TreeIndex);
+    fn root<'a>(&self, merkle: &'a MerkleTree) -> &'a Hash {
+        return self.record_witness_hash(merkle, (TREE_HASHES - 1) as TreeIndex);
     }
 
     /// Get merkle hash siblings when doing this tree access, it will be included
     /// in the witness.
-    fn record_witness_access(&self, ix: TreeIndex) {
+    fn record_witness_access(&self, merkle: &MerkleTree, ix: TreeIndex) {
         let mut at = ix;
         let mut offset: TreeIndex = 0;
         for depth in 0..TREE_DEPTH {
             if at % 2 == 0 {
-                self.record_witness_hash(offset + at + 1);
+                self.record_witness_hash(merkle, offset + at + 1);
             } else {
-                self.record_witness_hash(offset + at - 1);
+                self.record_witness_hash(merkle, offset + at - 1);
             }
             offset += 1 << (TREE_DEPTH - depth);
             at = at / 2;
         }
     }
-
-    pub fn insert(&mut self, ix: TreeIndex, value_hash: Hash) {
-        self.record_witness_access(ix);
-        self.merkle.insert(ix, value_hash);
-    }
-
-    fn take_witness(&mut self) -> BTreeMap<TreeIndex, Hash> {
-        let hashes = std::mem::replace(
-            self.witness.get_mut(),
-            BTreeMap::<TreeIndex, Hash>::default(),
-        );
-        // update for next run
-        self.initial_hashes = self.merkle.hashes.clone();
-        hashes
-    }
 }
 
 struct StateTree<V: ValueTraits> {
-    /// Key and values for given tree indexe (u15).
-    /// Allows access to state key and to value by tree index.
-    key_values: BTreeMap<TreeIndex, KeyValue<V>>,
-    /// Merkle tree, contains all merkle hashes of leafs.
-    tree: Tree,
+    state: token_ledger_state_v2::merkle::StateTree<V>,
+    tree_witness: TreeWitness,
     /// This records all value accesses to be included in the Witness.
     /// (Witness is both values and merkle tree hashes siblings).
-    witness_values: RefCell<BTreeMap<Vec<u8>, V>>,
+    key_values_witness: RefCell<BTreeMap<Vec<u8>, V>>,
 }
 
 impl<V: ValueTraits> Default for StateTree<V> {
     fn default() -> Self {
         Self {
-            key_values: Default::default(),
-            tree: Default::default(),
-            witness_values: Default::default(),
+            state: Default::default(),
+            tree_witness: Default::default(),
+            key_values_witness: Default::default(),
         }
     }
 }
@@ -258,25 +239,27 @@ impl<V: ValueTraits> StateTree<V> {
             let v = KeyValue::<V>::decode(buf_reader).unwrap();
             result.set(v.key, v.value);
         }
-        result.tree.initial_hashes = result.tree.merkle.hashes.clone();
+        result.tree_witness.initial_hashes = result.state.tree.hashes.clone();
         result
     }
+
     fn serialize<W: Write>(&mut self, w: &mut W) {
-        dbg!("serializing {} items", self.key_values.len());
-        (self.key_values.len() as u64).encode_to(w);
-        for (_, v) in self.key_values.iter() {
+        dbg!("serializing {} items", self.state.key_values.len());
+        (self.state.key_values.len() as u64).encode_to(w);
+        for (_, v) in self.state.key_values.iter() {
             v.encode_to(w);
         }
     }
 
     fn get_value(&self, k: &[u8]) -> Option<&KeyValue<V>> {
         let ix = tree_index_from_key(&k);
-        self.tree.record_witness_access(ix);
-        let v = self.key_values.get(&ix);
+        self.tree_witness.record_witness_access(&self.state.tree, ix);
+        // code is a bit redundant with state but simple enough to not be factored
+        let v = self.state.key_values.get(&ix);
         if let Some(value_v) = v.as_ref() {
             // record value in witness
-            if !self.witness_values.borrow().contains_key(&value_v.key) {
-                self.witness_values
+            if !self.key_values_witness.borrow().contains_key(&value_v.key) {
+                self.key_values_witness
                     .borrow_mut()
                     .insert(value_v.key.clone(), value_v.value.clone());
             }
@@ -299,53 +282,44 @@ impl<V: ValueTraits> StateTree<V> {
     // fail on key collision by returning false
     pub fn set(&mut self, k: Vec<u8>, v: V) -> bool {
         let ix = tree_index_from_key(&k);
-        if let Some(existing) = self.key_values.get_mut(&ix) {
-            if existing.key.as_slice() == k {
-                existing.value = v;
-                self.tree.insert(ix, existing.merkle_value());
-            } else {
-                let _ = self.get(k.as_slice()); // register witness (we access value to check key).
-                return false;
-            }
-        } else {
-            let value = KeyValue { key: k, value: v };
-            self.tree.insert(ix, value.merkle_value());
-            self.key_values.insert(ix, value);
-        }
-        true
+        self.tree_witness.record_witness_access(&self.state.tree, ix);
+        self.state.set(k, v)
     }
 
     pub fn root(&self) -> &Hash {
-        self.tree.root()
+        self.tree_witness.root(&self.state.tree)
     }
 
     fn init_from_witness(
         witness_hashes: &[(TreeIndex, Hash)],
         witness_key_values: Vec<(Vec<u8>, V)>,
     ) -> Option<Self> {
-        let token_ledger_state_v2::merkle::StateTree {
-            tree,
-            values,
-        } = token_ledger_state_v2::merkle::StateTree::init_from_witness(
-            witness_hashes,
-            witness_key_values,
-        )?;
+        let token_ledger_state_v2::merkle::StateTree { tree, key_values } =
+            token_ledger_state_v2::merkle::StateTree::init_from_witness(
+                witness_hashes,
+                witness_key_values,
+            )?;
 
         Some(Self {
-            key_values: values,
-            tree: Tree {
+            tree_witness: TreeWitness {
                 initial_hashes: tree.hashes.clone(),
                 witness: Default::default(),
-                merkle: tree,
             },
-            witness_values: Default::default(),
+            key_values_witness: Default::default(),
+            state: token_ledger_state_v2::merkle::StateTree::<V> { key_values, tree },
         })
     }
 
     fn take_witness(&mut self) -> (BTreeMap<TreeIndex, Hash>, BTreeMap<Vec<u8>, V>) {
-        let hashes = self.tree.take_witness();
+        let hashes = std::mem::replace(
+            self.tree_witness.witness.get_mut(),
+            BTreeMap::<TreeIndex, Hash>::default(),
+        );
+        // update for next run
+        self.tree_witness.initial_hashes = self.state.tree.hashes.clone();
+
         let values = std::mem::replace(
-            self.witness_values.get_mut(),
+            self.key_values_witness.get_mut(),
             BTreeMap::<Vec<u8>, V>::default(),
         );
 
@@ -395,11 +369,11 @@ mod tests {
     #[test]
     fn create_token_and_distribute() {
         let mut state: State = Default::default();
-        assert!([0; 32] == state.get_root());
+        assert_eq!([0; 32], state.get_root());
 
         state.set_balance([1; 32], 1, 10);
 
-        assert!([0; 32] != state.get_root());
+        assert_ne!([0; 32], state.get_root());
 
         let witness_1 = state.take_witness();
         let mut state2 = State::from_witness(witness_1).unwrap();

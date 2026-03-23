@@ -22,13 +22,13 @@ pub struct Operation {
 }
 
 // previous item step
-struct ItemAccumulate {
+struct PendingAccumulateResult {
     // if an error do not attempt to advance next state transition.
     previous_state_root: Result<Option<Hash>, ()>,
 }
 
 pub fn on_accumulate_items(items: Vec<AccumulateItem>) {
-    let mut items_result = ItemAccumulate {
+    let mut items_result = PendingAccumulateResult {
         previous_state_root: Ok(None),
     };
 
@@ -61,7 +61,7 @@ pub fn on_accumulate_items(items: Vec<AccumulateItem>) {
     // TODO resolve two step on top of Vec conflict or first success
 }
 
-fn on_work_item_record(record: WorkItemRecord, acc: &mut ItemAccumulate) {
+fn on_work_item_record(record: WorkItemRecord, acc: &mut PendingAccumulateResult) {
     info!(
         "Accumulate processing work item record: package {:?}",
         record.package
@@ -132,12 +132,12 @@ fn on_work_item_record_single_step(
             // checks.
             if op.exported_segments.len() > 0 || op.processed_segments.len() > 0 {
                 // We store hash of segment content with a reference count.
-                let mut buffed_segments: BTreeMap<Hash, u64> =
-                    get("buffed_segments").unwrap_or(BTreeMap::new());
-                info!("acc loaded buffed of size {}", buffed_segments.len());
+                let mut queued_segments: BTreeMap<Hash, u64> =
+                    get("queued_segments").unwrap_or(BTreeMap::new());
+                info!("acc loaded queued of size {}", queued_segments.len());
                 for p in &op.processed_segments {
                     let mut rem_seg = false;
-                    if let Some(rc) = buffed_segments.get_mut(p) {
+                    if let Some(rc) = queued_segments.get_mut(p) {
                         *rc -= 1;
                         if *rc == 0 {
                             rem_seg = true;
@@ -148,20 +148,20 @@ fn on_work_item_record_single_step(
                         return;
                     }
                     if rem_seg {
-                        buffed_segments.remove(p);
+                        queued_segments.remove(p);
                     }
                 }
                 for p in op.exported_segments {
                     info!("Acc exported {}", hex::encode(&p));
-                    if let Some(rc) = buffed_segments.get_mut(&p) {
+                    if let Some(rc) = queued_segments.get_mut(&p) {
                         *rc += 1;
                     } else {
-                        buffed_segments.insert(p, 1);
+                        queued_segments.insert(p, 1);
                     }
                 }
                 // TODO properly handle error (especially for tutorial)
-                set("buffed_segments", &buffed_segments).unwrap();
-                info!("Acc updated buffed of size {}", buffed_segments.len());
+                set("queued_segments", &queued_segments).unwrap();
+                info!("Acc updated queued of size {}", queued_segments.len());
             }
         }
         Mode::Direct => (),

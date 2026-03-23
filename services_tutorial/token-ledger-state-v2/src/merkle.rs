@@ -137,14 +137,17 @@ pub trait ValueTraits: Clone + Decode + Encode + MerkleValue {}
 impl<V: Clone + Decode + Encode + MerkleValue> ValueTraits for V {}
 
 pub struct StateTree<V: ValueTraits> {
-    pub values: BTreeMap<TreeIndex, KeyValue<V>>,
+    /// Key and values for given tree indexe (u15).
+    /// Allows access to state key and to value by tree index.
+    pub key_values: BTreeMap<TreeIndex, KeyValue<V>>,
+    /// Merkle tree, contains all merkle hashes of leafs.
     pub tree: MerkleTree,
 }
 
 impl<V: ValueTraits> Default for StateTree<V> {
     fn default() -> Self {
         Self {
-            values: Default::default(),
+            key_values: Default::default(),
             tree: Default::default(),
         }
     }
@@ -153,7 +156,7 @@ impl<V: ValueTraits> Default for StateTree<V> {
 impl<V: ValueTraits> StateTree<V> {
     fn get_value(&self, k: &[u8]) -> Option<&KeyValue<V>> {
         let ix = tree_index_from_key(&k);
-        if let Some(v) = self.values.get(&ix) {
+        if let Some(v) = self.key_values.get(&ix) {
             if v.key.as_slice() != k {
                 return None;
             }
@@ -173,7 +176,7 @@ impl<V: ValueTraits> StateTree<V> {
     // fail on key collision by returning false
     pub fn set(&mut self, k: Vec<u8>, v: V) -> bool {
         let ix = tree_index_from_key(&k);
-        if let Some(existing) = self.values.get_mut(&ix) {
+        if let Some(existing) = self.key_values.get_mut(&ix) {
             if existing.key.as_slice() == k {
                 existing.value = v;
                 self.tree.insert(ix, existing.merkle_value());
@@ -183,7 +186,7 @@ impl<V: ValueTraits> StateTree<V> {
         } else {
             let value = KeyValue { key: k, value: v };
             self.tree.insert(ix, value.merkle_value());
-            self.values.insert(ix, value);
+            self.key_values.insert(ix, value);
         }
         true
     }
