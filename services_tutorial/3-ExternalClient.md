@@ -192,9 +192,9 @@ In attached code, the payload do not contain anything dynamic and is always enco
 The dynamic data is the list of the workitems to process, this list as the `export_count` is always written in the workitem definition.
 With a tool I am using to rpc a new item for my node the syntax is :
 ```
-mytool item --import-package-hash c5d3d11b9163e8f30fb8cb9bb5e06321441dd44686b0983d82d54e297ddb817f --import-package-index 0 97a7303e  0x0300000000
+mytool item --import wp:c5d3d11b9163e8f30fb8cb9bb5e06321441dd44686b0983d82d54e297ddb817f:0 97a7303e  0x0300000000
 ```
-With 97a7303e being my service id and 0x03000000 the static workitem payload.
+With 97a7303e being my service id, 0x03000000 the static workitem payload and import "wp:<work_package_hash>:<segment_index>".
 
 
 Using segments export and import we manage to buffer some inputs, and delay processing without using very little accumulation storage.
