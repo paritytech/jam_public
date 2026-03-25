@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "The JAM Token-Ledger service, providing transfers of tokens between holder accounts."
 license = "Apache-2.0"
+default-run = "token-ledger-builder-v2"
 
 [[bin]]
 name = "sign_ops"

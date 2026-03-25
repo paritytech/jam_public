@@ -66,13 +66,10 @@ fn main() {
     println!("Signed operations written to {}", &args[2]);
 }
 
-
 fn write_signed_operations(signed_ops: &[SignedOperationJson], output_path: &str) -> std::io::Result<()> {
     let mut output = File::create(output_path)?;
-    for signed_op in signed_ops {
-        let op_json = serde_json::to_string(signed_op).expect("Failed to serialize signed operation");
-        writeln!(output, "{}", op_json)?;
-    }
+    let op_seq_json = serde_json::to_string_pretty(signed_ops).expect("Failed to serialize signed operations");
+    writeln!(output, "{}", op_seq_json)?;
     Ok(())
 }
 
