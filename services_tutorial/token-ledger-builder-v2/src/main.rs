@@ -7,6 +7,7 @@ use codec::Encode;
 use std::env;
 use std::io::Read;
 use std::path::PathBuf;
+use token_ledger_builder_v2::state::State;
 
 //const HELP: &str = {
 //    "Build a refinement payload:
@@ -98,7 +99,7 @@ fn main() {
     let mut opt_db = std::fs::OpenOptions::new();
     opt_db.read(true).write(true);
     let db_path = std::path::PathBuf::new();
-    let mut state = token_ledger_builder_v2::state::State::from_db_path(db_path.clone(), overload_head);
+    let mut state = State::from_db_path(db_path.clone(), overload_head);
     println!("Initial root: {}", hex::encode(state.get_root()));
     let _ = token_ledger_state_v2::state_transition(&mut state, &operations, false);
     let witness = state.take_witness();
@@ -120,11 +121,11 @@ fn main() {
 			let mut data = Vec::new();
 			output.read_to_end(&mut data).unwrap();
 			let hash_r =  blake2b_simd::Params::new().hash_length(32).hash(&data);
-			let mut hash: [u8; 32] = [0;32];
+			let mut hash: token_ledger_common::Hash = [0;32];
 			hash.copy_from_slice(hash_r.as_bytes());
 			let len = data.len() as u64;
 		
-			let mut state = token_ledger_builder_v2::state::State::from_db_path(db_path, overload_head);
+			let mut state = State::from_db_path(db_path, overload_head);
 			let mut operations: Vec<token_ledger_common::SignedOperation> = Vec::with_capacity(1);
 
 			operations.push(token_ledger_common::SignedOperation {

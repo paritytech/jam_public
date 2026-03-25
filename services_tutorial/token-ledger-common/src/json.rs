@@ -2,18 +2,41 @@
 use crate::{Operation, Signature, SignedOperation, TokenId};
 use alloc::{format, string::String, vec::Vec};
 use jam_pvm_common::info;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-/// For the sake of ease of use and demonstration, in this tutorial we let the service
-/// receive JSON-encoded operation requests as payloads. This may not be very realistic
-/// nor efficient, but it allows us to easily produce test data.
-/// As a consequence the service includes a number of types that are only required for
-/// parsing the requests. In a real-world implementation, developers could consider
-/// more efficient serialization formats, thereby avoiding these structures.
+// For the sake of ease of use and demonstration, in this tutorial we let the service
+// receive JSON-encoded operation requests as payloads. This may not be very realistic
+// nor efficient, but it allows us to easily produce test data.
+// As a consequence the service includes a number of types that are only required for
+// parsing the requests. In a real-world implementation, developers could consider
+// more efficient serialization formats, thereby avoiding these structures.
 
-/// JSON representation of essential operation data
+/// JSON representation of basic human-friendly operation data,
+/// without signatures or real AccountIds. Instead, accounts are 
+/// specified by u64 seeds, from which we derive a valid cryptographic Keypair,
+/// so we can have access to the private key and with it produce signatures as needed.
+/// Using seeds everywhere in these operations also allows users to reason over the accounts
+/// to manually produce a consistent test scenario.
+/// We stress this is only used to produce test cases for demonstration, and should not be used in production.
 #[derive(Debug, Deserialize)]
-enum OperationJson {
+pub enum UnsignedOperationJson {
+    Mint {
+        token_id: TokenId,
+        amount: u64,
+        to_seed: u64,
+    },
+    Transfer {
+        token_id: TokenId,
+        amount: u64,
+        from_seed: u64,
+        to_seed: u64,
+    },
+}
+
+/// JSON representation of full operation data, ready for encoding and
+/// submission to a service. 
+#[derive(Debug, Deserialize, Serialize)]
+pub enum SignedOperationJson {
     Mint {
         token_id: TokenId,
         amount: u64,
@@ -29,10 +52,22 @@ enum OperationJson {
     },
 }
 
-/// Parse JSON payload containing an array of signed operations
+
+/// Parse JSON payload containing an array of unsigned operations
+pub fn parse_unsigned_operations(json_bytes: &[u8]) -> Result<Vec<UnsignedOperationJson>, String> {
+    info!("Parsing JSON payload of {} bytes", json_bytes.len());
+    let ops = serde_json::from_slice::<Vec<UnsignedOperationJson>>(json_bytes)
+        .map_err(|e| format!("Failed to parse JSON array: {}", e))?;
+
+    info!("Identified JSON array with {} unsigned operations", ops.len());
+
+    Ok(ops)
+}
+
+/// Parse JSON payload containing an array of fully specified signed operations.
 pub fn parse_signed_operations(json_bytes: &[u8]) -> Result<Vec<SignedOperation>, String> {
     info!("Parsing JSON payload of {} bytes", json_bytes.len());
-    let ops = serde_json::from_slice::<Vec<OperationJson>>(json_bytes)
+    let ops = serde_json::from_slice::<Vec<SignedOperationJson>>(json_bytes)
         .map_err(|e| format!("Failed to parse JSON array: {}", e))?;
 
     info!("Identified JSON array with {} signed operations", ops.len());
@@ -40,7 +75,7 @@ pub fn parse_signed_operations(json_bytes: &[u8]) -> Result<Vec<SignedOperation>
     let operations = ops
         .into_iter()
         .map(|json_op| match json_op {
-            OperationJson::Mint {
+            SignedOperationJson::Mint {
                 to,
                 token_id,
                 amount,
@@ -53,7 +88,7 @@ pub fn parse_signed_operations(json_bytes: &[u8]) -> Result<Vec<SignedOperation>
                 },
                 signature: decode_signature(&signature)?,
             }),
-            OperationJson::Transfer {
+            SignedOperationJson::Transfer {
                 from,
                 to,
                 token_id,
@@ -106,29 +141,3 @@ fn decode_signature(s: &str) -> Result<Signature, String> {
         .map_err(|e| format!("Invalid signature hex: {}", e))
 }
 
-// fn parse_operations(json_bytes: &[u8]) {
-//     let data = match serde_json::from_slice::<Vec<Operation>>(json_bytes) {
-//         Ok(data) => data,
-//         Err(e) => {
-//             eprintln!("✗ Failed to parse as list of Operation Data: {}", e);
-//             return;
-//         }
-//     };
-//     println!("✓ Successfully parsed list of Operation Data ({} elements): {:?}", data.len(), data);
-// }
-
-// /// Parse a single JSON SignedOperation object
-// fn parse_signed_operation_json(
-// 	json_data: SignedOperationJson,
-// ) -> Result<SignedOperation, &'static str> {
-// 	let operation = match json_data.operation {
-// 		OperationJson::Mint { to, token_id, amount } => {
-// 			RefinementOperation::Mint(MintRequest { to, token_id, amount })
-// 		},
-// 		OperationJson::Transfer { from, to, token_id, amount } => {
-// 			RefinementOperation::Transfer(TransferRequest { from, to, token_id, amount })
-// 		},
-// 	};
-
-// 	Ok(SignedOperation { operation, signature: json_data.signature })
-// }

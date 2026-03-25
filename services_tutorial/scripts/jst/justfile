@@ -22,11 +22,13 @@ start-testnet:
 alias st := start-testnet
 
 # Build a service
+[no-cd]
 build-service SERVICE:
     jam-pvm-build -m service {{SERVICE}}
 alias bs := build-service
 
 # Create a service on a running testnet
+[no-cd]
 create-service SERVICE AMOUNT='1000000000':
     #!/usr/bin/env bash
     set -euo pipefail
@@ -39,6 +41,7 @@ alias cs := create-service
 # Data is submitted as encoded bytes. If DATA is a quoted string, it will be 
 # encoded as UTF-8 bytes. If it's a hex string (starting with 0x), it will be decoded from hex into bytes.
 [doc('Submit a WorkItem to a service.')]
+[no-cd]
 submit-item DATA SERVICE='':
     #!/usr/bin/env bash
     set -euo pipefail
@@ -54,6 +57,7 @@ alias s := submit-item
 # Submit a WorkItem with data read from a file. If Service is not specified, use the last service.
 # This is particularly useful for submitting large or complex data, such as JSON-encoded operations for the token ledger service.
 [doc('Submit a WorkItem with data read from a file')]
+[no-cd]
 submit-file FILE NB_EXPORTS='0' SERVICE='':
     #!/usr/bin/env bash
     set -euo pipefail
@@ -67,6 +71,7 @@ submit-file FILE NB_EXPORTS='0' SERVICE='':
 alias sf := submit-file
 
 [doc('Provide a preimage with data read from a file')]
+[no-cd]
 provide FILE SERVICE='':
     #!/usr/bin/env bash
     set -euo pipefail
