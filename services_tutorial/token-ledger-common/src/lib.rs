@@ -2,13 +2,14 @@
 
 extern crate alloc;
 
+// An auxiliary module for handling JSON-encoded data.
 pub mod json;
 
 // using consensus to avoid importing jam-std-common (quite heay import TODO feature gate it a
 // bit?).
 pub use ed25519_consensus::{VerificationKey, VerificationKeyBytes};
 use blake2b_simd::Params;
-// An auxiliary module for handling JSON-encoded data.
+use jam_types::Hash;
 
 use codec::{Decode, Encode};
 
@@ -137,9 +138,6 @@ pub type TokenId = u32;
 
 /// An account identifier (32-byte public key)
 pub type AccountId = [u8; 32];
-
-/// A 32-byte hash digest
-pub type Hash = [u8; 32];
 
 /// A set of two counterparts of a single transfer.
 /// There is no implication of who the sender is, because we
