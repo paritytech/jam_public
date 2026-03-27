@@ -9,8 +9,9 @@ use codec::Encode;
 use jam_std_common::{Node, NodeError, NodeExt, hash_raw};
 use jam_tooling::CommonArgs;
 use jam_types::{
-    AuthConfig, Authorization, Authorizer, CodeHash, CoreIndex, ExtrinsicSpec, RefineContext,
-    ValIndex, WorkItem, WorkPackage, WorkPackageHash, max_accumulate_gas, max_refine_gas, val_count
+    AuthConfig, Authorization, Authorizer, CodeHash, CoreIndex, ExtrinsicSpec, HeaderHash,
+    RefineContext, ServiceId, ValIndex, WorkItem, WorkPackage, WorkPackageHash, max_accumulate_gas,
+    max_refine_gas, val_count,
 };
 use jsonrpsee::ws_client::WsClient;
 use std::env;
@@ -96,7 +97,12 @@ fn main() {
     let connect_rpc = matches.get_flag("connect_rpc");
 
     let rpc_port = if connect_rpc {
-        Some(matches.get_one::<u16>("port").copied().unwrap_or(BASE_NODE_PORT + DEFAULT_NODE_INDEX as u16))
+        Some(
+            matches
+                .get_one::<u16>("port")
+                .copied()
+                .unwrap_or(BASE_NODE_PORT + DEFAULT_NODE_INDEX as u16),
+        )
     } else {
         None
     };
@@ -166,7 +172,7 @@ fn main() {
 
         if preimage_steps {
             std::mem::drop(output);
-            export_preimage_payload(output_path, db_path, overload_head, version);
+            export_preimage_payload(&output_path, db_path, overload_head, version);
         }
     } else {
         println!("No output file specified, skipping writing payload to file");
@@ -217,7 +223,11 @@ pub(crate) fn parse_service_id_hex(input: &str) -> Option<u32> {
     }
 }
 
-async fn submit_to_node(rpc_port: u16, service: Option<u32>, payload: RefinePayload) -> Result<(), NodeError> {
+async fn submit_to_node(
+    rpc_port: u16,
+    service_id: Option<u32>,
+    payload: RefinePayload,
+) -> Result<(), NodeError> {
     let node = match connect_to_node(rpc_port).await {
         Ok(node) => node,
         Err(error) => {
@@ -233,7 +243,7 @@ async fn submit_to_node(rpc_port: u16, service: Option<u32>, payload: RefinePayl
     let beefy_root = node.beefy_root(best.header_hash).await?;
     let finalized = node.finalized_block().await?;
 
-    let service_id = service.expect("Service ID is required to submit to RPC node");
+    let service_id = service_id.expect("Service ID is required to submit to RPC node");
 
     let service = match node
         .service_data(best.header_hash, service_id)
@@ -254,18 +264,11 @@ async fn submit_to_node(rpc_port: u16, service: Option<u32>, payload: RefinePayl
         }
     };
 
+    let (null_authorizer_hash, auth_code_preimage_available) =
+        get_authorizer(&node, best.header_hash).await?;
+
     let service_code_preimage_available = node
         .service_preimage(best.header_hash, service_id, service.code_hash.0)
-        .await?
-        .is_some();
-
-    let null_authorizer_hash: CodeHash = hash_raw(jam_null_authorizer_bin::BLOB).into();
-    let auth_code_preimage_available = node
-        .service_preimage(
-            best.header_hash,
-            BOOTSTRAP_SERVICE_ID,
-            null_authorizer_hash.0,
-        )
         .await?
         .is_some();
 
@@ -283,20 +286,16 @@ async fn submit_to_node(rpc_port: u16, service: Option<u32>, payload: RefinePayl
         std::process::exit(1);
     }
 
-    let extrinsic_data = &[10_u8; 24];
+    // We create an empty extrinsics list here, for demonstration purposes only.
+    let extrinsic_data = &[];
     let extrinsic_hash = hash_raw(extrinsic_data).into();
-    let extrinsic_specs = match vec![ExtrinsicSpec {
+    let extrinsic_specs = vec![ExtrinsicSpec {
         hash: extrinsic_hash,
         len: extrinsic_data.len() as u32,
     }]
     .try_into()
-    {
-        Ok(specs) => specs,
-        Err(_) => {
-            println!("⚠️  Failed to create extrinsic specs: too many extrinsics in work item");
-            std::process::exit(1);
-        }
-    };
+    .expect("We only have one extrinsic, so this should never fail");
+
     let extrinsics = vec![Bytes::copy_from_slice(extrinsic_data)];
     let export_count = 0;
 
@@ -334,10 +333,7 @@ async fn submit_to_node(rpc_port: u16, service: Option<u32>, payload: RefinePayl
     let package_hash: WorkPackageHash = hash_raw(&package.encode()).into();
 
     let mut core = DEFAULT_CORE;
-    while let Err(error) = node
-        .submit_work_package(core, &package, &extrinsics)
-        .await
-    {
+    while let Err(error) = node.submit_work_package(core, &package, &extrinsics).await {
         println!(
             "submit_work_package to core {core}/{} failed: {}\nHint: this often means no reachable guarantor for the selected core/anchor, authorizer mismatch, or package validation rejection.",
             val_count(),
@@ -349,7 +345,7 @@ async fn submit_to_node(rpc_port: u16, service: Option<u32>, payload: RefinePayl
             std::process::exit(1);
         }
     }
-    
+
     println!(
         "✅ Payload submitted successfully to service {service_id} on core {core} with package hash {package_hash}"
     );
@@ -490,4 +486,14 @@ pub fn print_debug(witness: &Witness) {
     for token_id in witness.token_ids.iter() {
         println!("    {}", token_id);
     }
+}
+
+async fn get_authorizer(node: &WsClient, block: HeaderHash) -> Result<(CodeHash, bool), NodeError> {
+    let null_authorizer_hash: CodeHash = hash_raw(jam_null_authorizer_bin::BLOB).into();
+    let auth_code_preimage_available = node
+        .service_preimage(block, BOOTSTRAP_SERVICE_ID, null_authorizer_hash.0)
+        .await?
+        .is_some();
+
+    Ok((null_authorizer_hash, auth_code_preimage_available))
 }
