@@ -143,7 +143,10 @@ fn on_work_item_record_single_step(
                             rem_seg = true;
                         }
                     } else {
-                        error!("Non buffered segment {} was refined, dropping all", hex::encode(p));
+                        error!(
+                            "Non buffered segment {} was refined, dropping all",
+                            hex::encode(p)
+                        );
                         *acc = Err(());
                         return;
                     }

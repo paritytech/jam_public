@@ -9,8 +9,8 @@
 //! building no std.
 
 use super::{
-    hash_multiple, hash_pair, hash_sequence, tree_index_from_key, Hash, MerkleValue, TreeIndex,
-    EMPTY_HASH, TREE_DEPTH,
+    EMPTY_HASH, Hash, MerkleValue, TREE_DEPTH, TreeIndex, hash_multiple, hash_pair, hash_sequence,
+    tree_index_from_key,
 };
 
 use alloc::collections::BTreeMap;

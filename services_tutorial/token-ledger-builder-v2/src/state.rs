@@ -8,10 +8,10 @@ use codec::{Decode, Encode};
 use std::io::{Read, Seek, Write};
 use token_ledger_common::{AccountId, TokenId};
 use token_ledger_state_v2::merkle::{
-    Balance, KeyValue, MerkleTree, ValueTraits, Witness, TREE_HASHES,
+    Balance, KeyValue, MerkleTree, TREE_HASHES, ValueTraits, Witness,
 };
 use token_ledger_state_v2::{
-    hash_pair, tree_index_from_key, Hash, MerkleValue, StateOps, TreeIndex, EMPTY_HASH, TREE_DEPTH,
+    EMPTY_HASH, Hash, MerkleValue, StateOps, TREE_DEPTH, TreeIndex, hash_pair, tree_index_from_key,
 };
 
 #[derive(Default)]
@@ -253,7 +253,8 @@ impl<V: ValueTraits> StateTree<V> {
 
     fn get_value(&self, k: &[u8]) -> Option<&KeyValue<V>> {
         let ix = tree_index_from_key(&k);
-        self.tree_witness.record_witness_access(&self.state.tree, ix);
+        self.tree_witness
+            .record_witness_access(&self.state.tree, ix);
         // code is a bit redundant with state but simple enough to not be factored
         let v = self.state.key_values.get(&ix);
         if let Some(value_v) = v.as_ref() {
@@ -282,7 +283,8 @@ impl<V: ValueTraits> StateTree<V> {
     // fail on key collision by returning false
     pub fn set(&mut self, k: Vec<u8>, v: V) -> bool {
         let ix = tree_index_from_key(&k);
-        self.tree_witness.record_witness_access(&self.state.tree, ix);
+        self.tree_witness
+            .record_witness_access(&self.state.tree, ix);
         self.state.set(k, v)
     }
 

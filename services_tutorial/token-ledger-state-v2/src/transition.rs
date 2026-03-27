@@ -8,8 +8,8 @@ use codec::{Decode, Encode};
 use jam_pvm_common::{info, warn};
 use jam_types::Hash;
 use token_ledger_common::{
-    canonical_transfer, verify_signature, AccountId, Counterparts, Operation, SignedOperation,
-    Solicit, TokenId, VerificationKey,
+    AccountId, Counterparts, Operation, SignedOperation, Solicit, TokenId, VerificationKey,
+    canonical_transfer, verify_signature,
 };
 
 #[derive(Clone, Copy, Debug, Encode, Decode, PartialEq, Eq)]
@@ -102,9 +102,9 @@ pub fn state_transition<S: StateOps>(
             } => {
                 if !checked_operations {
                     let Ok(signer_key) = VerificationKey::try_from(*from) else {
-                    warn!("Invalid 'from' account in transfer operation: {:?}", from);
-                    continue;
-                };
+                        warn!("Invalid 'from' account in transfer operation: {:?}", from);
+                        continue;
+                    };
                     if verify_signature(&operation, &signature, signer_key).is_err() {
                         warn!("Invalid signature for operation");
 
