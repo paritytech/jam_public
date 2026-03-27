@@ -12,7 +12,7 @@ use jam_tooling::CommonArgs;
 use jam_types::{
     AuthConfig, Authorization, Authorizer, CodeHash, CoreIndex, ExtrinsicSpec, HeaderHash,
     RefineContext, ValIndex, WorkItem, WorkPackage, WorkPackageHash, max_accumulate_gas,
-    max_refine_gas, val_count,
+    max_refine_gas, val_count,VALS_PER_CORE
 };
 use jsonrpsee::ws_client::WsClient;
 use std::env;
@@ -334,13 +334,15 @@ async fn submit_to_node(
     let package_hash: WorkPackageHash = hash_raw(&package.encode()).into();
 
     let mut core = DEFAULT_CORE;
+    let max_core = val_count() / VALS_PER_CORE as ValIndex;
     while let Err(error) = node.submit_work_package(core, &package, &extrinsics).await {
         println!(
             "submit_work_package to core {core}/{} failed: {}\nHint: this often means no reachable guarantor for the selected core/anchor, authorizer mismatch, or package validation rejection.",
-            val_count(),
+            max_core,
             error,
         );
-        core = (core + 1) % val_count();
+
+        core = (core + 1) % max_core;
         if core == DEFAULT_CORE {
             println!("⚠️  All cores have been tried, submission failed");
             std::process::exit(1);
