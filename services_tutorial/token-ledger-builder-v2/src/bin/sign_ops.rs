@@ -46,8 +46,8 @@ fn main() {
                 SignedOperationJson::Mint {
                     token_id,
                     amount,
-                    to: hex::encode(&to_kp.public_key.to_bytes()),
-                    signature: hex::encode(&signature.to_bytes()),
+                    to: hex::encode(to_kp.public_key.to_bytes()),
+                    signature: hex::encode(signature.to_bytes()),
                 }
             }
             UnsignedOperationJson::Transfer {
@@ -66,11 +66,11 @@ fn main() {
                 };
                 let signature = from_kp.signing_key.sign(&operation.signing_message());
                 SignedOperationJson::Transfer {
-                    from: hex::encode(&from_kp.public_key.to_bytes()),
-                    to: hex::encode(&to_kp.public_key.to_bytes()),
+                    from: hex::encode(from_kp.public_key.to_bytes()),
+                    to: hex::encode(to_kp.public_key.to_bytes()),
                     token_id,
                     amount,
-                    signature: hex::encode(&signature.to_bytes()),
+                    signature: hex::encode(signature.to_bytes()),
                 }
             }
         };

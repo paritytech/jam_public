@@ -5,12 +5,13 @@
 use bytes::Bytes;
 use clap::{arg, command, value_parser};
 use codec::Encode;
+use std::path::Path;
 
 use jam_std_common::{Node, NodeError, NodeExt, hash_raw};
 use jam_tooling::CommonArgs;
 use jam_types::{
     AuthConfig, Authorization, Authorizer, CodeHash, CoreIndex, ExtrinsicSpec, HeaderHash,
-    RefineContext, ServiceId, ValIndex, WorkItem, WorkPackage, WorkPackageHash, max_accumulate_gas,
+    RefineContext, ValIndex, WorkItem, WorkPackage, WorkPackageHash, max_accumulate_gas,
     max_refine_gas, val_count,
 };
 use jsonrpsee::ws_client::WsClient;
@@ -101,7 +102,7 @@ fn main() {
             matches
                 .get_one::<u16>("port")
                 .copied()
-                .unwrap_or(BASE_NODE_PORT + DEFAULT_NODE_INDEX as u16),
+                .unwrap_or(BASE_NODE_PORT + DEFAULT_NODE_INDEX),
         )
     } else {
         None
@@ -122,7 +123,7 @@ fn main() {
 
         opt_service = matches
             .get_one::<String>("service")
-            .map(|s| parse_service_id_hex(&s).unwrap());
+            .map(|s| parse_service_id_hex(s).unwrap());
     }
 
     let mut overload_head: Option<Hash> = None;
@@ -150,7 +151,7 @@ fn main() {
         token_ledger_state_v2::Mode::Direct
     };
 
-    let operations = read_ops_from_file(&input_path);
+    let operations = read_ops_from_file(input_path);
 
     let db_path = std::path::PathBuf::new();
     let witness = compute_transition_witness(&db_path, overload_head, &operations);
@@ -168,11 +169,11 @@ fn main() {
         // In preimage mode, we use this to compute a hash, and then
         // include it as the corresponding pre-image to a Solicit operation.
 
-        let output = export_direct_payload(&output_path, &refine_payload);
+        let output = export_direct_payload(output_path, &refine_payload);
 
         if preimage_steps {
             std::mem::drop(output);
-            export_preimage_payload(&output_path, db_path, overload_head, version);
+            export_preimage_payload(output_path, db_path, overload_head, version);
         }
     } else {
         println!("No output file specified, skipping writing payload to file");
@@ -362,9 +363,8 @@ async fn connect_to_node(rpc_port: u16) -> Result<WsClient, NodeError> {
         Ok(node) => {
             let best_block = node.best_block().await?;
             println!(
-                "✅ Succeeded connecting to RPC node at {}. Best block: {}",
-                common_args.rpc,
-                format!("{} at slot {}", best_block.header_hash, best_block.slot)
+                "✅ Succeeded connecting to RPC node at {}. Best block: {} at slot {}",
+                common_args.rpc, best_block.header_hash, best_block.slot
             );
             node
         }
@@ -381,7 +381,7 @@ async fn connect_to_node(rpc_port: u16) -> Result<WsClient, NodeError> {
 }
 
 fn export_direct_payload(output_path: &PathBuf, refine_payload: &RefinePayload) -> File {
-    let mut output = std::fs::File::create(&output_path).unwrap();
+    let mut output = std::fs::File::create(output_path).unwrap();
     refine_payload.encode_to(&mut output);
     output
 }
@@ -394,7 +394,7 @@ fn export_preimage_payload(
 ) {
     println!("Processing with pre-image steps");
 
-    let (hash, len) = compute_payload_hash(&output_path);
+    let (hash, len) = compute_payload_hash(output_path);
 
     println!(
         "Preimage hash: {}. Preimage length: {}",
@@ -403,17 +403,15 @@ fn export_preimage_payload(
     );
 
     let mut state = State::from_db_path(db_path, overload_head);
-    let mut operations: Vec<SignedOperation> = Vec::with_capacity(1);
-
-    operations.push(SignedOperation {
+    let operations: Vec<SignedOperation> = vec![SignedOperation {
         // Dummy, unchecked in tutorial
         signature: Signature([0; 64].into()),
         operation: Operation::Solicit(Solicit {
             on_root: state.get_root(),
-            hash: hash.into(),
+            hash,
             len,
         }),
-    });
+    }];
 
     let _ = token_ledger_state_v2::state_transition(&mut state, &operations, false);
     // only root as we only check right root for solicit
@@ -430,7 +428,7 @@ fn export_preimage_payload(
 }
 
 fn read_ops_from_file(path: &PathBuf) -> Vec<token_ledger_common::SignedOperation> {
-    let mut input = std::fs::File::open(&path).unwrap();
+    let mut input = std::fs::File::open(path).unwrap();
     let mut input_vec = Vec::new();
     input.read_to_end(&mut input_vec).unwrap();
     let operations =
@@ -440,13 +438,13 @@ fn read_ops_from_file(path: &PathBuf) -> Vec<token_ledger_common::SignedOperatio
 }
 
 fn compute_transition_witness(
-    db_path: &std::path::PathBuf,
+    db_path: &Path,
     overload_head: Option<Hash>,
     operations: &Vec<SignedOperation>,
 ) -> Witness {
     let mut opt_db = std::fs::OpenOptions::new();
     opt_db.read(true).write(true);
-    let mut state = State::from_db_path(db_path.clone(), overload_head);
+    let mut state = State::from_db_path(db_path.to_path_buf(), overload_head);
     println!("Initial root: {}", hex::encode(state.get_root()));
     let _ = token_ledger_state_v2::state_transition(&mut state, operations, false);
     let witness = state.take_witness();
@@ -457,7 +455,7 @@ fn compute_transition_witness(
 }
 
 fn compute_payload_hash(file_path: &PathBuf) -> (Hash, u64) {
-    let mut payload_file = std::fs::File::open(&file_path).unwrap();
+    let mut payload_file = std::fs::File::open(file_path).unwrap();
     let mut data = Vec::new();
     payload_file.read_to_end(&mut data).unwrap();
     println!(
