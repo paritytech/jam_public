@@ -18,8 +18,8 @@ help:
 
 # Start testnet
 [no-cd]
-start-testnet:
-    polkajam-testnet
+start-testnet *args:
+    polkajam-testnet {{args}}
 alias st := start-testnet
 
 # Build a service
