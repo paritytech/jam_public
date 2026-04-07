@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
-use jam_pvm_common::{error, info, ApiError};
+use jam_pvm_common::{ApiError, error, info};
 use token_ledger_state_v2::Hash;
 use token_ledger_state_v2::Mode;
 

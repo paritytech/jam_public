@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 // more efficient serialization formats, thereby avoiding these structures.
 
 /// JSON representation of basic human-friendly operation data,
-/// without signatures or real AccountIds. Instead, accounts are 
+/// without signatures or real AccountIds. Instead, accounts are
 /// specified by u64 seeds, from which we derive a valid cryptographic Keypair,
 /// so we can have access to the private key and with it produce signatures as needed.
 /// Using seeds everywhere in these operations also allows users to reason over the accounts
@@ -34,7 +34,7 @@ pub enum UnsignedOperationJson {
 }
 
 /// JSON representation of full operation data, ready for encoding and
-/// submission to a service. 
+/// submission to a service.
 #[derive(Debug, Deserialize, Serialize)]
 pub enum SignedOperationJson {
     Mint {
@@ -52,14 +52,16 @@ pub enum SignedOperationJson {
     },
 }
 
-
 /// Parse JSON payload containing an array of unsigned operations
 pub fn parse_unsigned_operations(json_bytes: &[u8]) -> Result<Vec<UnsignedOperationJson>, String> {
     info!("Parsing JSON payload of {} bytes", json_bytes.len());
     let ops = serde_json::from_slice::<Vec<UnsignedOperationJson>>(json_bytes)
         .map_err(|e| format!("Failed to parse JSON array: {}", e))?;
 
-    info!("Identified JSON array with {} unsigned operations", ops.len());
+    info!(
+        "Identified JSON array with {} unsigned operations",
+        ops.len()
+    );
 
     Ok(ops)
 }
@@ -140,4 +142,3 @@ fn decode_signature(s: &str) -> Result<Signature, String> {
         .map(|sig| Signature(sig))
         .map_err(|e| format!("Invalid signature hex: {}", e))
 }
-

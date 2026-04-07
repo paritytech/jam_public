@@ -1,46 +1,80 @@
-
+# Transactions Rollup Model 
 ## Moving data out of JAM database
 
 
-Previous tutorial step was writing all account balances and minted token into Jam service step.
-This is fine as a tutorial to show how to use service Jam storage and how to define a service, but this defeat general Jam design by chugging Jam storage with service specific data.
-
-This accumulation centric design is very similar to the way ethereum did work at launch: a single state shared by all peers.
-
+The previous tutorial sections described how to mint tokens and write account balances directly into Jam state.
+This is fine as a tutorial to show how to define a service, and how to access Jam storage within it.
+This accumulation centric design is very similar to the way ethereum did work at launch, with a single state shared by all peers, 
+but it defeats the general Jam design by polluting Jam storage with service specific data.
+It is also not very efficient, as each individual balance has to be specifically accessed during accumulation and this does not scale.
 Remember, refinement is generally cheap, accumulation is expensive.
-So we will move as much as possible processing out of this accumulation process, and run things mostly in refinement.
-This means accessing actual balances from refinement.
-The trick is to simply move all the storage of the service out of Jam accumulation and attach proofs/witness to refinement. 
 
-Refinement will run over a partial state included in the workitem.
-During refinement, operations are run against this partial state.
-In this tutorial, we call this partial state the witness as it is the witness of a given state transition, it is also often refered as a state proof (eg in polkadot).
+So, we prefer to move processing, as much as possible, out of this accumulation process and into refinement, and we will do so by treating balance changes in batches that we can verify in refinement with the aid of proofs and witnesses. Accumulation, then, will have the simple logic of updating the commitment to the resulting state.
 
-The data will no longer be stored on Jam, but will be external data that clients must manage and track.
-So clients store and share a common state, then send proofs of state transition to Jam. Jam refinement will validate those state transition proofs, and Jam accumulation will only store and update the state merkle root.
-
-Note that refinement on itself can run on a valid proof that is not synched with client, things get only fully validated when during accumulation step we check that the transition used in refinement is effectively running against the correct previous root.
-
+This section of the tutorial will illustrate how to implement this model, and serve as an example for more sophisticated use-cases.
 
 ## Overview
 
-
-This tutorial extends previous tutorial (a token ledger storing data during accumulation) with a focus on:
-- designing a client external state: accounts are not stored on jam state, only the state merkle root.
-- discuss cost of such design.
-- have  a minimal external client state code example for educational purpose.
+This tutorial extends previous tutorials (a token ledger storing data during accumulation) with a focus on:
+- designing a client external state: accounts are not stored on Jam state, only the state merkle root.
+- discussing the costs of such design.
+- developing a minimal external client state code example for educational purpose.
 
 This tutorial will not attempt to:
 - be secure, we keep skipping signature checks in refinement.
-- be optimal, we use a very simple bounded, unoptimal, merkle state and proofs. For real use a proper third party implementation of state and state storage should be use (eg polkadot sdk).
-- implement state distribution: each client should synch upon the last state root finalized in jam state. A disconnected client will lose ability to synch state if work items and work reports got pruned (GP 14.3.1 defines two retention periods, short live until finality for auditing and a long live for 28 days (672 slots) the datalake). Here we will not implement such client but simply launch all clients from a disk directory over a single state persistence, totally cheating on state distribution. Generally availability for client can be largely application centric. Work reports in blocks can also be largely used (but in practice only block changing jamt storage for the service are of interest).
-- define proper role for distribution: every client are just validators with direct access the jam datalake and work items, on a real implementation, distribution strategy must fit the usecase.
-- external client must handle fail or success accumulate processing, here the dummy client implementation will assume success and update its state directly when producing the workitem (a non dummy client should only be committed after accumulation). So a failure will put client in an invalid state (in practice the storage write a different state serialization for each new state root and it is possible to revert by changing HEAD file pointer to a different serialization file).
-- Do real parrallel processing, since our usecase can fail (multiple parallel transaction overspending an account), doing parallel refinement is rather complex. Even if part of the tutorial (see segments) put foundation to try to resolve multiple parallel state transitions, this is too involve for the tutorial. Therefore every state transition must run sequentially: every state transition must start from the state of the previous one.  
+- be optimal, we use a very simple bounded, unoptimal, merkle state and proofs. For real use a proper third party implementation of state and state storage should be used (eg polkadot sdk).
+- implement state distribution: each client should synch upon the last state root finalized in Jam state. A disconnected client will lose ability to synch state if work items and work reports get pruned (the Graypaper defines two retention periods: short-lived _auditable bundles_ are kept in the Audit DA store by assurers only until the relevant block is finalized, and a long-lived data lake, where exported segments and their page-proofs can be retained for 28 days or more). (TODO: @cheme may need to clarify this a bit). [Here we will not implement such client but simply launch all clients from a disk directory over a single state persistence, totally cheating on state distribution  Generally availability for client can be largely application centric. Work reports in blocks can also be largely used (but in practice only block changing jamt storage for the service are of interest).]
+- define proper role for distribution: every client represents a validator with direct access to the Jam datalake and work items. In a real implementation, distribution strategy must fit the usecase.
+- show how to handle errors. External clients must handle the failure or success of service processing, but our dummy client implementation will assume success and try to update its state directly when producing the workitem. If the refinement panics, accumulation will not proceed.
+- parallelize execution, since our usecase can fail (multiple parallel transaction overspending an account) and handling parallel refinement is rather complex. Even if part of the tutorial (see segments) lay a foundation to try to resolve multiple parallel state transitions, this is too involved for a tutorial. Therefore every state transition must run sequentially, which means every state transition must start from the state of the previous one.  
 
-So the tutorial still stay mostly at service level but also involve a lot more client dummy implementation.
+## Partial state
 
-## Direct workitem state transition
+In this model, the full service state is managed by external clients, not by Jam service storage. Refinement therefore executes against a partial state carried in the Work Item payload.
+We call that partial state a Witness. It is the data needed for refinement to replay and verify a proposed state transition against a committed prior root (often called a state proof in other ecosystems).
+
+Important nuance for this implementation: the Witness is built from state accesses performed during transition execution (reads and writes), not only from values that end up modified.
+
+The Jam's service storage maintains a cryptographic commitment to the global state, so accumulation is limited to updating this commitment after refinement confirms the purported state transition is the correct outcome of all the submitted operations, and it is built on the currently stored state.
+
+Note that refinement, by itself, can ascertain validity of operations only in relation to the partial state communicated with them. Where we have several clients, it may happen that one of them submits a partial state that is not in sync with what the others have submitted to the service and so it may happen that a state transition is considered valid in refinement but corresponds to a global state that is no longer up to date. For this reason, accumulation ensures that the state only changes if its current value corresponds to the initial state confirmed by the Witness, that is, the batch of operations was applied to the service's current state.
+
+In summary, clients store and share a common state, then submit state-transition proofs to the service. Refinement validates the transition from the witness data, and accumulation only stores and updates the state commitment.
+
+## External State Representation
+
+The external state is the full client-side database used to process operations and compute state evolution. We keep it intentionally simple for tutorial purposes.
+
+Balances are stored in a fixed-size binary Merkle tree. The address space is bounded to 2^15 leaves; if two different keys map to the same leaf index, this demo implementation fails on collision.
+
+Token IDs are tracked separately (as a list) and hashed together with the balances-tree root to form the overall state root commitment.
+
+In this implementation, the Witness is built from state accesses performed while executing the transition on the client side.
+For each balance key that is read or written, the client records:
+- the accessed key/value pair (when present), so refinement can reconstruct the touched leaves;
+- the sibling hashes along the leaf-to-root path in the balances Merkle tree.
+
+The witness format is therefore access-based (all keys touched by transition logic), not strictly "all keys that ended up changed". In practice this can include values that were only read for validation (for example checking balances before a transfer).
+
+The collected tree hashes are deduplicated by node index before encoding, so overlapping paths do not duplicate the same hash entry. However, this remains a simple tutorial design and does not try to minimize proof size aggressively.
+
+Token IDs are handled separately from balances: the full token-id list is currently included in each witness.
+
+At this point we have described the state model (full external state + partial witness + on-chain commitment). The next sections discuss a different axis: how this same payload is delivered to refinement (directly, via preimage, or via segments).
+
+Full state serializing is done after all state transition (usually done by the command line producing the jam workitme), with no recovery of errors.
+
+Full state deserializing is done on each command call.
+
+
+## Payload Delivery Modes
+(TODO: review whether this is accurate at the moment. We may not have implemented all the options, and we may be able to deliver the payload via extrinsic as well)
+
+Submission mechanism and payload delivery are different concerns:
+- submission mechanism: how the request reaches the service (for this tutorial, via submitted Work Items);
+- payload delivery mode: where refinement reads the transition payload from (directly in the Work Item, via preimage, or via segments).
+
+The direct mode is the simplest option: a single Work Item carries both operations and witness data. Refinement executes immediately from that payload.
 
 This design simply put a batch of operations in a single work item. Processing of the batch is done in a single refinement call. Then refinement can directly transmit both new and old state root to accumulation which only update this root (if old root matches).
 
@@ -48,51 +82,77 @@ JAM persistence is therefore only:
 - a key value for the current state root
 - work items shared in the datalake.
 
-### External state
+## Building and testing
 
-The attached code provide a simple external state. It simply store accounts in a small binary tree of 2^15 keyspace elements, failling on key collision (keys are stored alongside the balance).
-Token ids are stored as a single value and just hashed against binary tree root to produce state root.
-
-Witnesses do not attempt to reduce footprint and will store all sibling of every keys with redundancy.
-Full state serializing is done after all state transition (usually done by the command line producing the jam workitme), with no recovery of errors.
-Full state deserializing is done on each command call.
-
-
-### Testing
-
-This tutorial run the same examples as the token ledger one. One will observe that the logs are slightly different:
-- transfer are logged in refine.
-- transfer in refine are asociated with a workpackage hash and workitem (we could have a single extrinsic root).
-- accumulate advance state root.
-- accumulate display workitem processed or failure (can fail if two workpackage try to advance same external client state: only one get processed, failure need to be handled properly though).
-
-### Prepare a workitem payload for refinement
-
-From `token-ledger-builder-v2`
-```
-cargo run -- -i ./example_payloads/op_mint.json -o refinement_payload
-```
-
-This run locally the external client operations, and write a payload for refinement containing both input operations and the state witness to be able to run.
-This time, since we got this additional processing, we do not deserialize json in refinement but a binary encoded payload.
-
-
-The json file shall contain all operation to run for a single slot. `op_mint.json` for instance will involves:  three balance value included of each minted token, and the tokens (as documented in code sample the state is simply includding all tokens everytime).
-
-Codewise, client read full state from local disk persistence, then run operation from json, then extract witness from recorded state access, then binary encode both witness and operation into an external file, finally update persistence so next call will run on an updated state.
-
-### Run on jam
-
-Simply use jst as in previous tutorial but with `token-ledger-service-v2` as service crate, and always use `submit-file` command for work item, the payload must be the `refinement_payload` file produce in previous step).
+We now describe how to build and use the example code presented in this tutorial
 
 ### Example code
 
 The code under the git repository is split between three crates:
-- `toker-ledger-state-v2`: merkle state, and state transition logic. Is `no_std`.
-- `token-ledger-builder-v2`: the client part: data serializing and can command line to build input payloadata. Depends on the state transition from `token-ledger-state-v2`. Is not `no_std`.
-- `token-ledger-service-v2`: the Jam service code, refine and accumulation logic, largely depend on the state transition of `token-ledger-state-v2`. Is `no_std`
+- `token-ledger-service-v2`: this implements the Jam service code, namely the refine and accumulation logic. It is largely dependent on the state transition of `token-ledger-state-v2`. Must be compiled in `no_std` mode and pre-compiled to PVM before it can be used.
+- `token-ledger-builder-v2`: this implements the client part, including constructing encoded payloads and submitting them to Jam. It depends on the state transition from `token-ledger-state-v2`, but can be run in `std` mode.
+- `toker-ledger-state-v2`: library crate implementing the merkle state and state transition logic. This is used both in the service and the builder and so must be compiled in `no_std` mode.
 
 Code running direct workitme is executed when `Mode` enum is set to `Direct`.
+
+
+### Prepare a workitem payload for refinement
+There are two kinds of operations the user can create:
+- Mint: creates a single token with a certain balance that is fully assigned to a seed account. The service only tries to transfer balances of tokens previously minted.
+- Transfer: send some amount of tokens from a source account to a destination account.
+
+For ease of use, we let the user specify a series of operations in a friendly way by creating Json files with minimum information for each operation, namely: amounts, token Ids and account descriptors. The latter are a seed to specify valid cryptographic account Ids, that can't be easily generated by hand, and free the user from having to generate valid keypairs for the sake of test examples. You can see an example in `token-ledger-builder-v2/example_payloads/unsigned_ops_mixed.json`.
+
+We can't use Json directly as payload, so we encode it first in binary. The encoded payload run contains both the input operations and the state witness necessary for refinement to verify the correctness of the state transition.
+
+1. Create a list of operations without cryptographic material (no signatures nor account IDs): <unsigned_ops.json>
+2. From `token-ledger-builder-v2`, ionvert this list to a Json file with full information in Json with 
+
+```
+cargo run --bin sign_ops <unsigned_ops.json> <signed_ops.json>
+```
+
+3. Transform the list of operations into an encoded payload suitable for submission with
+```
+cargo run <signed_ops.json> <output_payload>
+```
+
+The client can generate several transitions in sequence while keeping consistency across runs: it loads the latest state from disk, applies operations, then persists the resulting state. By default, each run starts from the hash stored in the `HEAD` file (unless a specific head is provided) and builds the next transition on top of that root. The `HEAD` file stores only the latest root hash, while state snapshots are stored in separate files named by their root hash.
+
+
+### Submit payload to Jam
+
+You can simply use `just` as in previous tutorial but with `token-ledger-service-v2` as service crate, and use the `submit-file` command to submit the file produced (ie <output_payload> )in previous step.
+
+Alternatively, you can also use the builder to connect directly to an RPC node and submit the Work Package without making use of `jamt`.
+In this mode, you pass the Json list of files, and not the encoded payload. 
+Note: For this tutorial, the builder assumes you are connecting to a testnet in the Tiny configuration. 
+
+1. Compile the service into PVM with, which outputs a compiled `<service.jam>` file:
+```
+just build-service <service folder>
+```
+
+2. Start a testnet and locate a suitable RPC node message similar to 
+`node0: 2026-04-06 16:44:45 main INFO polkajam  RPC listening on [::]:19800`
+```
+just start-testnet
+```
+
+3. Deploy the service on the testnet with and copy the resulting service id (ie `94560b8f`)
+```
+just create-service <service.jam>
+```
+
+4. Submit a work item to an RPC node. By default, this tutorial will try to connect to a node on port `19800`. Adjust as needed.
+```
+cargo run -- --connect-rpc --service 94560b8f <signed_ops.json>
+```
+
+# Other modes of operation
+
+TODO: review these modes of operation, check if we really need pre-images. 
+Show how to pass data in an extrinsic instead of the payload
 
 ## Using a preimage 
 

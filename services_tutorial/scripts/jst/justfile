@@ -17,8 +17,9 @@ help:
 
 
 # Start testnet
-start-testnet:
-    polkajam-testnet
+[no-cd]
+start-testnet *args:
+    polkajam-testnet {{args}}
 alias st := start-testnet
 
 # Build a service
@@ -34,7 +35,8 @@ create-service SERVICE AMOUNT='1000000000':
     set -euo pipefail
     output=$(jamt create-service {{SERVICE}} {{AMOUNT}} "Initial endowment" 2>&1 | tee /dev/tty)
     service_id=$(echo "$output" | awk '/Service [0-9a-f]+ created/ {print $2}')
-    just _save-service-id-if-found "$service_id"
+    echo "Updating last service ID with: $service_id"
+    just --justfile "{{justfile()}}" _save-service-id-if-found "$service_id"
 alias cs := create-service
 
 # Submit a WorkItem. If Service is not specified, use the last service.
@@ -46,7 +48,7 @@ submit-item DATA SERVICE='':
     #!/usr/bin/env bash
     set -euo pipefail
     if [ -z "{{SERVICE}}" ]; then
-        service_id=$(just _get-last-service-id)
+        service_id=$(just --justfile "{{justfile()}}" _get-last-service-id)
     else
         service_id="{{SERVICE}}"
     fi
@@ -62,7 +64,7 @@ submit-file FILE NB_EXPORTS='0' SERVICE='':
     #!/usr/bin/env bash
     set -euo pipefail
     if [ -z "{{SERVICE}}" ]; then
-        service_id=$(just _get-last-service-id)
+        service_id=$(just --justfile "{{justfile()}}" _get-last-service-id)
     else
         service_id="{{SERVICE}}"
     fi
@@ -76,7 +78,7 @@ provide FILE SERVICE='':
     #!/usr/bin/env bash
     set -euo pipefail
     if [ -z "{{SERVICE}}" ]; then
-        service_id=$(just _get-last-service-id)
+        service_id=$(just --justfile "{{justfile()}}" _get-last-service-id)
     else
         service_id="{{SERVICE}}"
     fi
@@ -86,20 +88,22 @@ alias pr := provide
 
 
 # Query service's information. If service is not defined, use the last created service.
+[no-cd]
 query-service SERVICE='':
     #!/usr/bin/env bash
     if [ -z "{{SERVICE}}" ]; then
-        service_id=$(just _get-last-service-id)
+        service_id=$(just --justfile "{{justfile()}}" _get-last-service-id)
     else
         service_id="{{SERVICE}}"
     fi
     jamt inspect service "$service_id"
 
 # Query service's storage. If service is not defined, use the last created service.
+[no-cd]
 query-storage KEY SERVICE='':
     #!/usr/bin/env bash
     if [ -z "{{SERVICE}}" ]; then
-        service_id=$(just _get-last-service-id)
+        service_id=$(just --justfile "{{justfile()}}" _get-last-service-id)
     else
         service_id="{{SERVICE}}"
     fi
@@ -107,10 +111,11 @@ query-storage KEY SERVICE='':
 alias qs := query-storage
 
 # Queue a WorkItem to a service:
+[no-cd]
 queue-item DATA SERVICE='':
     #!/usr/bin/env bash
     if [ -z "{{SERVICE}}" ]; then
-        service_id=$(just _get-last-service-id)
+        service_id=$(just --justfile "{{justfile()}}" _get-last-service-id)
     else
         service_id="{{SERVICE}}"
     fi
@@ -118,6 +123,7 @@ queue-item DATA SERVICE='':
 alias q := queue-item
 
 # Empty WorkItem queue and submit a package:
+[no-cd]
 package:
     jamt pack
 alias p := package
@@ -125,11 +131,12 @@ alias p := package
 ### Token-Ledger specific recipes:
 
 # Query the Token-Ledger's balance for a given token ID and account ID.
+[no-cd]
 balance token_id ACCOUNT_ID:
     #!/usr/bin/env bash
-    key=$(just _get_balance_key {{token_id}} {{ACCOUNT_ID}})
+    key=$(just --justfile "{{justfile()}}" _get_balance_key {{token_id}} {{ACCOUNT_ID}})
     printf "Balance key: %s\n" "$key"
-    just query-storage $key
+    just --justfile "{{justfile()}}" query-storage $key
 alias b := balance
 
 # Get balance key
@@ -145,19 +152,18 @@ _get_balance_key token_id ACCOUNT_ID:
 _get-last-service-id:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ ! -f .last_service_id.just ]; then
+    if [ ! -f $HOME/.last_service_id.just ]; then
         echo "Error: No service ID found. Run 'just create-service' first." >&2
         exit 1
     fi
-    cat .last_service_id.just
+    cat $HOME/.last_service_id.just
 
 # Save service ID if found, warn if not
 _save-service-id-if-found SERVICE_ID:
     #!/usr/bin/env bash
     if [ -n "{{SERVICE_ID}}" ]; then
-        echo "{{SERVICE_ID}}" > .last_service_id.just
+        echo "{{SERVICE_ID}}" > $HOME/.last_service_id.just
         echo "Saved service ID: {{SERVICE_ID}}"
     else
         echo "Warning: Could not extract service ID from output"
     fi
-

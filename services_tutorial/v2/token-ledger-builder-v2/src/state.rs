@@ -8,10 +8,10 @@ use codec::{Decode, Encode};
 use std::io::{Read, Seek, Write};
 use token_ledger_common::{AccountId, TokenId};
 use token_ledger_state_v2::merkle::{
-    Balance, KeyValue, MerkleTree, ValueTraits, Witness, TREE_HASHES,
+    Balance, KeyValue, MerkleTree, TREE_HASHES, ValueTraits, Witness,
 };
 use token_ledger_state_v2::{
-    hash_pair, tree_index_from_key, Hash, MerkleValue, StateOps, TreeIndex, EMPTY_HASH, TREE_DEPTH,
+    EMPTY_HASH, Hash, MerkleValue, StateOps, TREE_DEPTH, TreeIndex, hash_pair, tree_index_from_key,
 };
 
 #[derive(Default)]
@@ -45,7 +45,7 @@ impl State {
         };
         if head_hash != EMPTY_HASH {
             let mut state_path = db_location.clone();
-            state_path.push(&hex::encode(&head_hash));
+            state_path.push(hex::encode(head_hash));
             let mut db_file = std::fs::File::open(state_path).unwrap();
             let mut reader = codec::IoReader(&mut db_file);
             State {
@@ -66,11 +66,11 @@ impl State {
 
     pub fn take_witness(&mut self) -> Witness {
         let (hashes, values) = self.balances.take_witness();
-        return Witness {
+        Witness {
             hashes: hashes.into_iter().collect(),
             key_value_balances: values.into_iter().collect(),
             token_ids: self.known_tokens.take_witness(),
-        };
+        }
     }
 
     pub fn from_witness(witness: Witness) -> Option<Self> {
@@ -88,27 +88,28 @@ impl State {
         // init balances witness tokens id initial hashes
         let _ = result.take_witness();
 
-        return Some(result);
+        Some(result)
     }
 
     pub fn get_root(&self) -> Hash {
-        return hash_pair(
+        hash_pair(
             self.balances.root(),
             &self.known_tokens.merkle.merkle_value(),
-        );
+        )
     }
 
     pub fn serialize(&mut self) {
         let Some(db_location) = self.persist.clone() else {
             return;
         };
-        let hash = self.get_root().clone();
+        let hash = self.get_root();
         let mut state_path = db_location.clone();
-        state_path.push(&hex::encode(&hash));
-        if let Ok(_) = std::fs::OpenOptions::new()
+        state_path.push(hex::encode(hash));
+        if std::fs::OpenOptions::new()
             .read(true)
             .write(true)
             .open(&state_path)
+            .is_ok()
         {
             // ignore already a state with this content
         } else {
@@ -126,11 +127,11 @@ impl State {
             .write(true)
             .open(&head_path)
         {
-            file.write_all(hex::encode(&hash).as_bytes()).unwrap();
+            file.write_all(hex::encode(hash).as_bytes()).unwrap();
             file.flush().unwrap();
         } else {
             let mut file = std::fs::File::create_new(&head_path).unwrap();
-            file.write_all(hex::encode(&hash).as_bytes()).unwrap();
+            file.write_all(hex::encode(hash).as_bytes()).unwrap();
             file.flush().unwrap();
         }
     }
@@ -187,11 +188,11 @@ impl TreeWitness {
             self.witness.borrow_mut().insert(ix, *witness_hash);
         }
 
-        return hash;
+        hash
     }
 
     fn root<'a>(&self, merkle: &'a MerkleTree) -> &'a Hash {
-        return self.record_witness_hash(merkle, (TREE_HASHES - 1) as TreeIndex);
+        self.record_witness_hash(merkle, (TREE_HASHES - 1) as TreeIndex)
     }
 
     /// Get merkle hash siblings when doing this tree access, it will be included
@@ -200,13 +201,13 @@ impl TreeWitness {
         let mut at = ix;
         let mut offset: TreeIndex = 0;
         for depth in 0..TREE_DEPTH {
-            if at % 2 == 0 {
+            if at.is_multiple_of(2) {
                 self.record_witness_hash(merkle, offset + at + 1);
             } else {
                 self.record_witness_hash(merkle, offset + at - 1);
             }
             offset += 1 << (TREE_DEPTH - depth);
-            at = at / 2;
+            at /= 2;
         }
     }
 }
@@ -252,8 +253,9 @@ impl<V: ValueTraits> StateTree<V> {
     }
 
     fn get_value(&self, k: &[u8]) -> Option<&KeyValue<V>> {
-        let ix = tree_index_from_key(&k);
-        self.tree_witness.record_witness_access(&self.state.tree, ix);
+        let ix = tree_index_from_key(k);
+        self.tree_witness
+            .record_witness_access(&self.state.tree, ix);
         // code is a bit redundant with state but simple enough to not be factored
         let v = self.state.key_values.get(&ix);
         if let Some(value_v) = v.as_ref() {
@@ -268,7 +270,7 @@ impl<V: ValueTraits> StateTree<V> {
                 return None;
             }
         }
-        return v;
+        v
     }
 
     pub fn get(&self, k: &[u8]) -> Option<&V> {
@@ -282,7 +284,8 @@ impl<V: ValueTraits> StateTree<V> {
     // fail on key collision by returning false
     pub fn set(&mut self, k: Vec<u8>, v: V) -> bool {
         let ix = tree_index_from_key(&k);
-        self.tree_witness.record_witness_access(&self.state.tree, ix);
+        self.tree_witness
+            .record_witness_access(&self.state.tree, ix);
         self.state.set(k, v)
     }
 
@@ -311,17 +314,11 @@ impl<V: ValueTraits> StateTree<V> {
     }
 
     fn take_witness(&mut self) -> (BTreeMap<TreeIndex, Hash>, BTreeMap<Vec<u8>, V>) {
-        let hashes = std::mem::replace(
-            self.tree_witness.witness.get_mut(),
-            BTreeMap::<TreeIndex, Hash>::default(),
-        );
+        let hashes = std::mem::take(self.tree_witness.witness.get_mut());
         // update for next run
         self.tree_witness.initial_hashes = self.state.tree.hashes.clone();
 
-        let values = std::mem::replace(
-            self.key_values_witness.get_mut(),
-            BTreeMap::<Vec<u8>, V>::default(),
-        );
+        let values = std::mem::take(self.key_values_witness.get_mut());
 
         (hashes, values)
     }
