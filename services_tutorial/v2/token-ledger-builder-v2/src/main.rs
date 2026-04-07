@@ -2,7 +2,6 @@
 //! - opening state from file and others.
 //! - produce refinement payload from json.
 
-use bytes::Bytes;
 use clap::{arg, command, value_parser};
 use codec::Encode;
 use std::path::Path;
@@ -11,8 +10,8 @@ use jam_std_common::{Node, NodeError, NodeExt, hash_raw};
 use jam_tooling::CommonArgs;
 use jam_types::{
     AuthConfig, Authorization, Authorizer, CodeHash, CoreIndex, ExtrinsicSpec, HeaderHash,
-    RefineContext, ValIndex, WorkItem, WorkPackage, WorkPackageHash, max_accumulate_gas,
-    max_refine_gas, val_count,VALS_PER_CORE
+    RefineContext, Slot, ValIndex, WorkItem, WorkPackage, WorkPackageHash, max_accumulate_gas,
+    max_refine_gas, val_count, VALS_PER_CORE,
 };
 use jsonrpsee::ws_client::WsClient;
 use std::env;
@@ -29,13 +28,14 @@ const DEFAULT_NODE_INDEX: ValIndex = 0;
 const DEFAULT_CORE: CoreIndex = 0;
 const BOOTSTRAP_SERVICE_ID: u32 = 0;
 
-//const HELP: &str = {
-//    "Build a refinement payload:
-//		input_json_file_path output_payload_file_path
-//		balance.db and "
-//};
-
 fn main() {
+    // Assumes we are running against the polkajam-testnet,
+    // in the tiny config
+    let parameters = jam_types::ProtocolParameters::tiny();
+	parameters.apply().expect("Built-in parameters should always be valid; qed");
+
+    println!("Set tiny config. Val count: {}, Vals per core: {}, Core count: {}", val_count(), VALS_PER_CORE, val_count() / VALS_PER_CORE as CoreIndex   );
+
     let matches = command!() // requires `cargo` feature
         .arg(
             arg!(
@@ -64,13 +64,13 @@ fn main() {
         )
         .arg(
             arg!(
-                --connect_rpc  "Connect to a running RPC node. Submit work-packages directly to it instead of writing payload to file"
+                --"connect-rpc"  "Connect to a running RPC node. Submit work-packages directly to it instead of writing payload to file"
             )
             .required(false),
         )
         .arg(
             arg!(
-                --service <SERVICE> "Required if --connect_rpc is used. Hex-string of the service ID (eg. 0x1234abcd)"
+                --service <SERVICE> "Required if --connect-rpc is used. Hex-string of the service ID (eg. 0x1234abcd)"
             )
             .required(false)
             .value_parser(value_parser!(String)),
@@ -95,7 +95,7 @@ fn main() {
     };
     println!("Input: {}", input_path.display());
 
-    let connect_rpc = matches.get_flag("connect_rpc");
+    let connect_rpc = matches.get_flag("connect-rpc");
 
     let rpc_port = if connect_rpc {
         Some(
@@ -239,40 +239,39 @@ async fn submit_to_node(
 
     println!("Connected to RPC node, submitting payload...");
 
-    let best = node.best_block().await?;
-    let state_root = node.state_root(best.header_hash).await?;
-    let beefy_root = node.beefy_root(best.header_hash).await?;
-    let finalized = node.finalized_block().await?;
+    let (context, _anchor_slot) = create_refine_context(&node).await?;
+    let anchor = context.anchor;
 
     let service_id = service_id.expect("Service ID is required to submit to RPC node");
 
     let service = match node
-        .service_data(best.header_hash, service_id)
+        .service_data(anchor, service_id)
         .await?
         .ok_or_else(|| {
             println!(
                 "Service {service_id} not found at anchor {:?}",
-                best.header_hash
+                anchor
             )
         }) {
         Ok(service) => service,
         Err(_) => {
             println!(
                 "⚠️  Service {service_id} not found at anchor {:?}",
-                best.header_hash
+                anchor
             );
             std::process::exit(1);
         }
     };
 
     let (null_authorizer_hash, auth_code_preimage_available) =
-        get_authorizer(&node, best.header_hash).await?;
+        get_authorizer(&node, anchor).await?;
 
     let service_code_preimage_available = node
-        .service_preimage(best.header_hash, service_id, service.code_hash.0)
+        .service_preimage(anchor, service_id, service.code_hash.0)
         .await?
         .is_some();
 
+    println!("Is authorizer available: {:?}", auth_code_preimage_available);
     if !service_code_preimage_available || !auth_code_preimage_available {
         println!(
             "Preflight failed before submit: code preimage missing. service_preimage_available={}, authorizer_preimage_available={}\nservice={:08x}, service_code_hash={}, auth_code_host={:08x}, null_authorizer_hash={}, anchor={:?}\nHint: this commonly happens when targeting externally deployed services whose code preimage is not available to this node.",
@@ -282,23 +281,23 @@ async fn submit_to_node(
             hex::encode(service.code_hash.0),
             BOOTSTRAP_SERVICE_ID,
             hex::encode(null_authorizer_hash.0),
-            best.header_hash
+            anchor
         );
         std::process::exit(1);
     }
 
     // We create an empty extrinsics list here, for demonstration purposes only.
     let extrinsic_data = &[];
-    let extrinsic_hash = hash_raw(extrinsic_data).into();
-    let extrinsic_specs = vec![ExtrinsicSpec {
-        hash: extrinsic_hash,
+    let _extrinsic_hash = hash_raw(extrinsic_data).into();
+    let _extrinsic_specs = vec![ExtrinsicSpec {
+        hash: _extrinsic_hash,
         len: extrinsic_data.len() as u32,
-    }]
-    .try_into()
-    .expect("We only have one extrinsic, so this should never fail");
+    }];
 
-    let extrinsics = vec![Bytes::copy_from_slice(extrinsic_data)];
     let export_count = 0;
+
+    println!("Created context for submission");
+
 
     let item = WorkItem {
         service: service_id,
@@ -307,9 +306,13 @@ async fn submit_to_node(
         refine_gas_limit: max_refine_gas(),
         accumulate_gas_limit: max_accumulate_gas(),
         import_segments: Default::default(),
-        extrinsics: extrinsic_specs,
+        // extrinsics: extrinsic_specs
+        // .try_into()
+        // .expect("We only have one extrinsic, so this should never fail");
+        extrinsics: Default::default(),
         export_count,
     };
+    println!("Created work item for submission without imports");
 
     let package = WorkPackage {
         authorization: Authorization::new(),
@@ -318,42 +321,76 @@ async fn submit_to_node(
             code_hash: null_authorizer_hash,
             config: AuthConfig::new(),
         },
-        context: RefineContext {
-            anchor: best.header_hash,
-            state_root,
-            beefy_root,
-            lookup_anchor: finalized.header_hash,
-            lookup_anchor_slot: finalized.slot,
-            prerequisites: Default::default(),
-        },
+        context,
         items: vec![item]
             .try_into()
             .expect("We only have one item, so this should never fail"),
     };
 
-    let package_hash: WorkPackageHash = hash_raw(&package.encode()).into();
+    println!("Created work package for submission");
 
+    let encoded_package = package.encode();
+    let package_hash: WorkPackageHash = hash_raw(&encoded_package).into();
+
+    println!("Submitting work package");
+    let max_core = val_count() / VALS_PER_CORE as CoreIndex;
     let mut core = DEFAULT_CORE;
-    let max_core = val_count() / VALS_PER_CORE as ValIndex;
-    while let Err(error) = node.submit_work_package(core, &package, &extrinsics).await {
-        println!(
-            "submit_work_package to core {core}/{} failed: {}\nHint: this often means no reachable guarantor for the selected core/anchor, authorizer mismatch, or package validation rejection.",
-            max_core,
-            error,
-        );
+    let submitted_core: Option<CoreIndex>;
 
-        core = (core + 1) % max_core;
-        if core == DEFAULT_CORE {
-            println!("⚠️  All cores have been tried, submission failed");
-            std::process::exit(1);
+    loop {
+        match node
+            .submit_encoded_work_package(core, encoded_package.clone().into(), &[])
+            .await
+        {
+            Ok(_) => {
+                submitted_core = Some(core);
+                break;
+            }
+            Err(error) => {
+                println!(
+                    "submit_encoded_work_package to core {core}/{} failed: {}",
+                    max_core, error
+                );
+                core = (core + 1) % max_core;
+                if core == DEFAULT_CORE {
+                    return Err(error);
+                }
+            }
         }
     }
 
+    let submitted_core = submitted_core.expect("submitted core is set when submission succeeds");
+
     println!(
-        "✅ Payload submitted successfully to service {service_id} on core {core} with package hash {package_hash}"
+        "✅ Payload submitted successfully to service {service_id} on core {} with package hash {package_hash}",
+        submitted_core
     );
 
     Ok(())
+}
+
+async fn create_refine_context(node: &WsClient) -> Result<(RefineContext, Slot), NodeError> {
+    // Match the parent-based anchoring logic used by newer tooling.
+    let finalized = node.finalized_block().await?;
+    let lookup_anchor = node.parent(finalized.header_hash).await?;
+
+    let best_block = node.best_block().await?;
+    let parent = node.parent(best_block.header_hash).await?;
+    let anchor = parent.header_hash;
+
+    let state_root = node.state_root(anchor).await?;
+    let beefy_root = node.beefy_root(anchor).await?;
+
+    let context = RefineContext {
+        anchor,
+        state_root,
+        beefy_root,
+        lookup_anchor: lookup_anchor.header_hash,
+        lookup_anchor_slot: lookup_anchor.slot,
+        prerequisites: Default::default(),
+    };
+
+    Ok((context, parent.slot))
 }
 
 async fn connect_to_node(rpc_port: u16) -> Result<WsClient, NodeError> {
@@ -361,7 +398,7 @@ async fn connect_to_node(rpc_port: u16) -> Result<WsClient, NodeError> {
         rpc: format!("ws://localhost:{}", rpc_port).to_string(),
     };
 
-    let client = match common_args.connect_rpc(DEFAULT_NODE_INDEX).await {
+    let node = match common_args.connect_rpc(DEFAULT_NODE_INDEX).await {
         Ok(node) => {
             let best_block = node.best_block().await?;
             println!(
@@ -379,7 +416,7 @@ async fn connect_to_node(rpc_port: u16) -> Result<WsClient, NodeError> {
         }
     };
 
-    Ok(client)
+    Ok(node)
 }
 
 fn export_direct_payload(output_path: &PathBuf, refine_payload: &RefinePayload) -> File {
