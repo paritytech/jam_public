@@ -18,6 +18,9 @@ pub use refinement::Payload as RefinePayload;
 mod accumulation;
 mod refinement;
 
+#[cfg(all(any(target_arch = "riscv32", target_arch = "riscv64"), target_feature = "e"))]
+polkavm_derive::min_stack_size!(32 * 1024);
+
 /// The Token Ledger Service
 pub struct TokenLedgerExternalClient;
 declare_service!(TokenLedgerExternalClient);
