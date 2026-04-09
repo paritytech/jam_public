@@ -42,6 +42,15 @@ fn main() {
                     token_id,
                     amount,
                 };
+
+                println!(
+                    "Signing Mint operation: to={}, token_id={}, amount={}",
+                    hex::encode(to_kp.public_key.to_bytes()),
+                    token_id,
+                    amount
+                );
+                println!("Signing message {:?} and key {:?}", hex::encode(operation.signing_message()), hex::encode(kp.signing_key.to_bytes()));
+
                 let signature = kp.signing_key.sign(&operation.signing_message());
                 SignedOperationJson::Mint {
                     token_id,

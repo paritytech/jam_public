@@ -484,7 +484,8 @@ fn compute_transition_witness(
     let mut opt_db = std::fs::OpenOptions::new();
     opt_db.read(true).write(true);
     let mut state = State::from_db_path(db_path.to_path_buf(), overload_head);
-    println!("Initial root: {}", hex::encode(state.get_root()));
+
+    println!("\nInitial root: {}", hex::encode(state.get_root()));
     let _ = token_ledger_state_v2::state_transition(&mut state, operations, false);
     let witness = state.take_witness();
     println!("Post execution root: {}", hex::encode(state.get_root()));

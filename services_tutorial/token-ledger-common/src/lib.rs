@@ -54,9 +54,12 @@ pub fn verify_signature(
     signature: &Signature,
     key: VerificationKey,
 ) -> Result<(), &'static str> {
-    let message = op.encode();
+    let message = op.signing_message().encode();
     key.verify(&signature.0, &message)
-        .map_err(|_| "Signature verification failed")
+        .map_err(|_| {
+            jam_pvm_common::info!("Signature verification failed for message: {:?} and key {:?}", hex::encode(&message), hex::encode(key.as_bytes()));
+            "Signature verification failed for message"
+        })
 }
 
 impl Operation {
