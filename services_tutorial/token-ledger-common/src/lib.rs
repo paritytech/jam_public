@@ -55,11 +55,14 @@ pub fn verify_signature(
     key: VerificationKey,
 ) -> Result<(), &'static str> {
     let message = op.signing_message().encode();
-    key.verify(&signature.0, &message)
-        .map_err(|_| {
-            jam_pvm_common::info!("Signature verification failed for message: {:?} and key {:?}", hex::encode(&message), hex::encode(key.as_bytes()));
-            "Signature verification failed for message"
-        })
+    key.verify(&signature.0, &message).map_err(|_| {
+        jam_pvm_common::info!(
+            "Signature verification failed for message: {:?} and key {:?}",
+            hex::encode(&message),
+            hex::encode(key.as_bytes())
+        );
+        "Signature verification failed for message"
+    })
 }
 
 impl Operation {
@@ -180,7 +183,6 @@ pub fn admin_keypair() -> Keypair {
     seed_bytes[0..5].copy_from_slice(b"admin");
     Keypair::from_seed(&seed_bytes)
 }
-
 
 /// A unique identifier for a token type
 pub type TokenId = u32;

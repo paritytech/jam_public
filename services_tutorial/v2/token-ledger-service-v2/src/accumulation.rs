@@ -47,10 +47,13 @@ pub fn on_accumulate_items(items: Vec<AccumulateItem>) {
     match items_result.previous_state_root {
         Ok(Some(new_root)) => {
             let current_root: Hash = get("client_root").unwrap_or_default();
-            if current_root != new_root {            
+            if current_root != new_root {
                 // TODO manage single step error
                 set("client_root", new_root).unwrap();
-                info!("[Accumulation] External client state transition success. New root: {:?}", hex::encode(new_root));
+                info!(
+                    "[Accumulation] External client state transition success. New root: {:?}",
+                    hex::encode(new_root)
+                );
             } else {
                 info!("[Accumulation] External client state unchanged. Skipping root update.");
             }
@@ -122,7 +125,10 @@ fn on_work_item_record_single_step(
                 if let Err(e) =
                     jam_pvm_common::accumulate::solicit(&solicit.hash, solicit.len as usize)
                 {
-                    error!("[Accumulation] Could not solicit preimage: {:?}, {:?}", solicit.hash, e);
+                    error!(
+                        "[Accumulation] Could not solicit preimage: {:?}, {:?}",
+                        solicit.hash, e
+                    );
                 } else {
                     info!(
                         "[Accumulation] Preimage {:?} of len {} has been sollicited",
@@ -139,7 +145,10 @@ fn on_work_item_record_single_step(
                 // We store hash of segment content with a reference count.
                 let mut queued_segments: BTreeMap<Hash, u64> =
                     get("queued_segments").unwrap_or(BTreeMap::new());
-                info!("[Accumulation]: acc loaded queued of size {}", queued_segments.len());
+                info!(
+                    "[Accumulation]: acc loaded queued of size {}",
+                    queued_segments.len()
+                );
                 for p in &op.processed_segments {
                     let mut rem_seg = false;
                     if let Some(rc) = queued_segments.get_mut(p) {
@@ -169,7 +178,10 @@ fn on_work_item_record_single_step(
                 }
                 // TODO properly handle error (especially for tutorial)
                 set("queued_segments", &queued_segments).unwrap();
-                info!("[Accumulation]: Acc updated queued of size {}", queued_segments.len());
+                info!(
+                    "[Accumulation]: Acc updated queued of size {}",
+                    queued_segments.len()
+                );
             }
         }
         Mode::Direct => (),

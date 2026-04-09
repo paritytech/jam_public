@@ -4,10 +4,10 @@ use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::io::Write;
-use token_ledger_common::{Operation, admin_keypair, generate_keypair};
 use token_ledger_common::json::{
     SignedOperationJson, UnsignedOperationJson, parse_unsigned_operations,
 };
+use token_ledger_common::{Operation, admin_keypair, generate_keypair};
 
 const HELP: &str = "Usage: sign_ops <input_unsigned_ops_file> <output_signed_ops_file>";
 
@@ -49,7 +49,11 @@ fn main() {
                     token_id,
                     amount
                 );
-                println!("Signing message {:?} and key {:?}", hex::encode(operation.signing_message()), hex::encode(kp.signing_key.to_bytes()));
+                println!(
+                    "Signing message {:?} and key {:?}",
+                    hex::encode(operation.signing_message()),
+                    hex::encode(kp.signing_key.to_bytes())
+                );
 
                 let signature = kp.signing_key.sign(&operation.signing_message());
                 SignedOperationJson::Mint {
@@ -100,4 +104,3 @@ fn write_signed_operations(
     writeln!(output, "{}", op_seq_json)?;
     Ok(())
 }
-

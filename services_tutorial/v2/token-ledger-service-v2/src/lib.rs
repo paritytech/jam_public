@@ -18,7 +18,10 @@ pub use refinement::Payload as RefinePayload;
 mod accumulation;
 mod refinement;
 
-#[cfg(all(any(target_arch = "riscv32", target_arch = "riscv64"), target_feature = "e"))]
+#[cfg(all(
+    any(target_arch = "riscv32", target_arch = "riscv64"),
+    target_feature = "e"
+))]
 polkavm_derive::min_stack_size!(32 * 1024);
 
 /// The Token Ledger Service
@@ -51,10 +54,12 @@ impl Service for TokenLedgerExternalClient {
     }
 
     fn accumulate(slot: Slot, service_id: ServiceId, item_count: usize) -> Option<Hash> {
-        info!("=== TokenLedger accumulate on service {service_id:x}h @{slot} with {item_count} items ===");
+        info!(
+            "=== TokenLedger accumulate on service {service_id:x}h @{slot} with {item_count} items ==="
+        );
 
         crate::accumulation::on_accumulate_items(accumulate::accumulate_items());
-	info!("=== TokenLedger accumulate finished ===");
+        info!("=== TokenLedger accumulate finished ===");
         None
     }
 }

@@ -17,7 +17,10 @@ pub fn refine_payload(payload: &[u8]) -> (Vec<u8>, usize) {
     let mut to_solicit = Vec::new();
     let mut exported_segments = Vec::new();
     let mut processed_segments = Vec::new();
-    info!("[refinement] Refining transition for payload of length: {}", payload.len());
+    info!(
+        "[refinement] Refining transition for payload of length: {}",
+        payload.len()
+    );
     let (previous_root, new_root, operations_len, version, _) = refine_transition(
         payload,
         &mut to_solicit,
@@ -26,7 +29,11 @@ pub fn refine_payload(payload: &[u8]) -> (Vec<u8>, usize) {
         true,
         true,
     );
-    info!("[refinement] Refinement done. Root {:?} -> {:?}", hex::encode(previous_root), hex::encode(new_root));
+    info!(
+        "[refinement] Refinement done. Root {:?} -> {:?}",
+        hex::encode(previous_root),
+        hex::encode(new_root)
+    );
     (
         crate::accumulation::Operation {
             version,
@@ -68,11 +75,11 @@ fn refine_transition(
     let mut operations_len = operations.len();
     info!(
         "[refinement] Payload: {} operations and version {:?}",
-        operations_len,
-        version
+        operations_len, version
     );
 
-    let Some(mut partial_state) = token_ledger_state_v2::merkle::State::from_witness(witness) else{
+    let Some(mut partial_state) = token_ledger_state_v2::merkle::State::from_witness(witness)
+    else {
         error!("error loading state");
         unimplemented!("TODO error report in work output ?");
     };

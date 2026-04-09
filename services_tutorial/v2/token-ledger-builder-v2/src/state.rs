@@ -39,7 +39,11 @@ impl State {
 
     pub fn from_db_path(db_location: std::path::PathBuf, head: Option<Hash>) -> Self {
         println!("[-----------------------------------]");
-        println!("Restoring state from db path: [{}]. Overload head: {:?}\n", db_location.display(), head);
+        println!(
+            "Restoring state from db path: [{}]. Overload head: {:?}\n",
+            db_location.display(),
+            head
+        );
 
         let head_hash = if let Some(h) = head {
             h
@@ -51,7 +55,10 @@ impl State {
         let state = if head_hash != EMPTY_HASH {
             let mut state_path = db_location.clone();
             state_path.push(hex::encode(head_hash));
-            println!("Head not at genesis. Reading state from db location: {}", state_path.display());
+            println!(
+                "Head not at genesis. Reading state from db location: {}",
+                state_path.display()
+            );
             let mut db_file = std::fs::File::open(state_path).unwrap();
             let mut reader = codec::IoReader(&mut db_file);
             State {
@@ -149,7 +156,13 @@ impl State {
 
 impl std::fmt::Display for State {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "State {{ root: {}, known accounts: {:?}, known_tokens: {:?} }}", hex::encode(self.get_root()), self.balances.state.key_values.len(), self.known_tokens.merkle.token_ids)
+        write!(
+            f,
+            "State {{ root: {}, known accounts: {:?}, known_tokens: {:?} }}",
+            hex::encode(self.get_root()),
+            self.balances.state.key_values.len(),
+            self.known_tokens.merkle.token_ids
+        )
     }
 }
 
