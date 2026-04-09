@@ -4,7 +4,7 @@ use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::io::Write;
-use token_ledger_common::Operation;
+use token_ledger_common::{Operation, admin_keypair, generate_keypair};
 use token_ledger_common::json::{
     SignedOperationJson, UnsignedOperationJson, parse_unsigned_operations,
 };
@@ -101,40 +101,3 @@ fn write_signed_operations(
     Ok(())
 }
 
-pub use ed25519_consensus::{SigningKey, VerificationKey, VerificationKeyBytes};
-/// A keypair for signing
-#[derive(Clone, Debug)]
-pub struct Keypair {
-    pub signing_key: SigningKey,
-    pub public_key: VerificationKey,
-}
-
-impl Keypair {
-    /// Create a keypair from a 32-byte seed
-    pub fn from_seed(seed: &[u8; 32]) -> Self {
-        let signing_key = SigningKey::from(*seed);
-        let verification_key = signing_key.verification_key();
-        Self {
-            signing_key,
-            public_key: verification_key,
-        }
-    }
-
-    /// Sign a message
-    pub fn sign(&self, message: &[u8]) -> [u8; 64] {
-        self.signing_key.sign(message).to_bytes()
-    }
-}
-
-pub fn admin_keypair() -> Keypair {
-    let mut seed_bytes = [0u8; 32];
-    seed_bytes[0..5].copy_from_slice(b"admin");
-    Keypair::from_seed(&seed_bytes)
-}
-
-/// Generate a deterministic keypair for testing (index-based)
-pub fn generate_keypair(seed: u64) -> Keypair {
-    let mut seed_bytes = [0u8; 32];
-    seed_bytes[0..8].copy_from_slice(&seed.to_le_bytes());
-    Keypair::from_seed(&seed_bytes)
-}
