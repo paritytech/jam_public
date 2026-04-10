@@ -37,7 +37,7 @@ Important nuance for this implementation: the Witness is built from state access
 
 The Jam's service storage maintains a cryptographic commitment to the global state, so accumulation is limited to updating this commitment after refinement confirms the purported state transition is the correct outcome of all the submitted operations, and it is built on the currently stored state.
 
-Note that refinement, by itself, can ascertain validity of operations only in relation to the partial state communicated with them. Where we have several clients, it may happen that one of them submits a partial state that is not in sync with what the others have submitted to the service and so it may happen that a state transition is considered valid in refinement but corresponds to a global state that is no longer up to date. For this reason, accumulation ensures that the state only changes if its current value corresponds to the initial state confirmed by the Witness, that is, the batch of operations was applied to the service's current state.
+Note that refinement, by itself, can ascertain validity of operations only in relation to the partial state communicated with them. Where we have several clients, it may happen that one of them submits a partial state that is not in sync with (or is outright malicious) what the others have submitted to the service and so it may happen that a state transition is considered valid in refinement but corresponds to a global state that is no longer up to date. For this reason, accumulation ensures that the state only changes if its current value corresponds to the initial state confirmed by the Witness, that is, the batch of operations was applied to the service's current state.
 
 In summary, clients store and share a common state, then submit state-transition proofs to the service. Refinement validates the transition from the witness data, and accumulation only stores and updates the state commitment.
 
@@ -54,7 +54,7 @@ For each balance key that is read or written, the client records:
 - the accessed key/value pair (when present), so refinement can reconstruct the touched leaves;
 - the sibling hashes along the leaf-to-root path in the balances Merkle tree.
 
-The witness format is therefore access-based (all keys touched by transition logic), not strictly "all keys that ended up changed". In practice this can include values that were only read for validation (for example checking balances before a transfer).
+The witness format is therefore access-based (all keys touched by transition logic), not strictly "all keys that ended up changed". In practice this must include values that were read for validation (for example checking balances before a transfer).
 
 The collected tree hashes are deduplicated by node index before encoding, so overlapping paths do not duplicate the same hash entry. However, this remains a simple tutorial design and does not try to minimize proof size aggressively.
 
@@ -62,7 +62,7 @@ Token IDs are handled separately from balances: the full token-id list is curren
 
 At this point we have described the state model (full external state + partial witness + on-chain commitment). The next sections discuss a different axis: how this same payload is delivered to refinement (directly, via preimage, or via segments).
 
-Full state serializing is done after all state transition (usually done by the command line producing the jam workitme), with no recovery of errors.
+Full state serializing is done after each state transition (usually done by the command line producing the jam workitem), with no recovery of errors.
 
 Full state deserializing is done on each command call.
 
@@ -106,7 +106,7 @@ For ease of use, we let the user specify a series of operations in a friendly wa
 We can't use Json directly as payload, so we encode it first in binary. The encoded payload run contains both the input operations and the state witness necessary for refinement to verify the correctness of the state transition.
 
 1. Create a list of operations without cryptographic material (no signatures nor account IDs): <unsigned_ops.json>
-2. From `token-ledger-builder-v2`, ionvert this list to a Json file with full information in Json with 
+2. From `token-ledger-builder-v2`, convert this list to a Json file with full information in Json with 
 
 ```
 cargo run --bin sign_ops <unsigned_ops.json> <signed_ops.json>
@@ -291,7 +291,7 @@ For example, for the above code, we can find the trap occurred in the following 
  37063: trap
 ```
 
-Debugging the PVM code is complex and way beyond the scope of this tutorial. If you need to debug at this level, be prepared to invest some serious time in understanding the PVM and the various outputs.
+Debugging the PVM code is complex and way beyond the scope of this tutorial. If you need to debug at this level, be prepared to invest some time in understanding the PVM and the various outputs.
 
 # Other modes of operation
 

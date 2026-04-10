@@ -292,7 +292,7 @@ async fn submit_to_node(
     // We create an empty extrinsics list here, for demonstration purposes only.
     let extrinsic_data = &[];
     let _extrinsic_hash = hash_raw(extrinsic_data).into();
-    let _extrinsic_specs = vec![ExtrinsicSpec {
+    let _extrinsic_specs = [ExtrinsicSpec {
         hash: _extrinsic_hash,
         len: extrinsic_data.len() as u32,
     }];
