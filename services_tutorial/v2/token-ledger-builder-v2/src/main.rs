@@ -73,6 +73,12 @@ fn main() {
         )
         .arg(
             arg!(
+                --extrinsic  "Send the witness to the service as an extrinsic, and not in the WorkItem payload"
+            )
+            .required(false),
+        )
+        .arg(
+            arg!(
                 --"connect-rpc"  "Connect to a running RPC node. Submit work-packages directly to it instead of writing payload to file"
             )
             .required(false),
@@ -135,11 +141,13 @@ fn main() {
             .map(|s| parse_service_id_hex(s).unwrap());
     }
 
-    let mut overload_head: Option<Hash> = None;
+    let mut override_head: Option<Hash> = None;
     if let Some(head_str) = matches.get_one::<String>("head") {
         let hash = hex::decode(head_str).unwrap();
-        overload_head = Some(hash.try_into().unwrap());
+        override_head = Some(hash.try_into().unwrap());
     }
+
+    let extrinsic_mode = matches.get_flag("extrinsic");
 
     let preimage_steps = matches.get_flag("preimage");
     let with_segments = matches.get_flag("segment");
@@ -149,21 +157,11 @@ fn main() {
         );
         return;
     }
-    let version = if preimage_steps {
-        dbg!("Running preimage steps");
-        token_ledger_state_v2::Mode::Preimage
-    } else if with_segments {
-        dbg!("Running segment steps");
-        token_ledger_state_v2::Mode::Segment
-    } else {
-        dbg!("Running direct steps");
-        token_ledger_state_v2::Mode::Direct
-    };
 
     let operations = read_ops_from_file(input_path);
 
     let db_path = std::path::PathBuf::new();
-    let witness = compute_transition_witness(&db_path, overload_head, &operations);
+    let witness = compute_transition_witness(&db_path, override_head, &operations);
 
     let version = 
         // if preimage_steps {
@@ -184,14 +182,14 @@ fn main() {
 
     let full_payload = RefinePayload {
         version,
-        operations,
-        witness,
+        operations: operations.clone(),
+        witness: Some(witness.clone()),
     };
 
     if let Some(output_path) = output_path {
         println!("Output: {}", output_path.display());
 
-        // Create the output file. In direct mode, this is the end result.
+        // Create the output file. In direct and extrinsic mode, this is the end result.
         // In preimage mode, we use this to compute a hash, and then
         // include it as the corresponding pre-image to a Solicit operation.
 
@@ -216,7 +214,28 @@ fn main() {
 
         let rpc_port = rpc_port.expect("Checked RPC port above");
         println!("Submitting to RPC node at port {rpc_port}...");
-        match rt.block_on(submit_to_node(rpc_port, opt_service, refine_payload)) {
+
+        let (payload, extrinsic) = match version {
+            Mode::Extrinsic => {
+                println!("Submitting in extrinsic mode, witness will be sent as extrinsic data");
+                (RefinePayload {
+                    version,
+                    operations,
+                    witness: None, 
+                 }, Some(witness))
+            }
+            Mode::Direct => {
+                println!("Submitting in direct mode, witness will be included in WorkItem payload");
+                (full_payload, None)
+            }
+            // Mode::Preimage => {
+            //     println!("Submitting in preimage mode, payload will include a Solicit operation with the payload hash, and the witness will be included in the WorkItem payload");
+            // }
+            // Mode::Segment => {
+            //     println!("Submitting in segment mode, payload will include Segment operations with segment hashes, and the witness will be included in the WorkItem payload");
+        };
+
+        match rt.block_on(submit_to_node(rpc_port, opt_service, payload, extrinsic)) {
             Ok(_) => {
                 println!("✅ RPC submission successful");
             }
@@ -254,6 +273,7 @@ async fn submit_to_node(
     rpc_port: u16,
     service_id: Option<u32>,
     payload: RefinePayload,
+    extrinsic_witness: Option<Witness>,
 ) -> Result<(), NodeError> {
     let node = match connect_to_node(rpc_port).await {
         Ok(node) => node,
@@ -262,14 +282,12 @@ async fn submit_to_node(
             std::process::exit(1);
         }
     };
-
     println!("Connected to RPC node, submitting payload...");
 
     let (context, _anchor_slot) = create_refine_context(&node).await?;
     let anchor = context.anchor;
 
     let service_id = service_id.expect("Service ID is required to submit to RPC node");
-
     let service = match node
         .service_data(anchor, service_id)
         .await?
@@ -309,12 +327,19 @@ async fn submit_to_node(
     }
 
     // We create an empty extrinsics list here, for demonstration purposes only.
-    let extrinsic_data = &[];
-    let _extrinsic_hash = hash_raw(extrinsic_data).into();
-    let _extrinsic_specs = [ExtrinsicSpec {
-        hash: _extrinsic_hash,
+    let extrinsic_data = extrinsic_witness
+        .as_ref()
+        .map(|witness| witness.encode())
+        .unwrap_or_default();
+    let extrinsic_hash = hash_raw(&extrinsic_data).into();
+    let extrinsic_specs = ExtrinsicSpec {
+        hash: extrinsic_hash,
         len: extrinsic_data.len() as u32,
-    }];
+    };
+    let extrinsics = vec![extrinsic_specs]
+        .try_into()
+        .expect("We only have one extrinsic, so this should never fail");
+    let extrinsic_bytes = vec![Bytes::copy_from_slice(&extrinsic_data)];
 
     let export_count = 0;
 
@@ -327,10 +352,7 @@ async fn submit_to_node(
         refine_gas_limit: max_refine_gas(),
         accumulate_gas_limit: max_accumulate_gas(),
         import_segments: Default::default(),
-        // extrinsics: extrinsic_specs
-        // .try_into()
-        // .expect("We only have one extrinsic, so this should never fail");
-        extrinsics: Default::default(),
+        extrinsics,
         export_count,
     };
     println!("Created work item for submission without imports");
@@ -360,7 +382,7 @@ async fn submit_to_node(
 
     loop {
         match node
-            .submit_encoded_work_package(core, encoded_package.clone().into(), &[])
+            .submit_encoded_work_package(core, encoded_package.clone().into(), &extrinsic_bytes)
             .await
         {
             Ok(_) => {
@@ -499,15 +521,15 @@ fn read_ops_from_file(path: &PathBuf) -> Vec<token_ledger_common::SignedOperatio
 
 fn compute_transition_witness(
     db_path: &Path,
-    overload_head: Option<Hash>,
+    override_head: Option<Hash>,
     operations: &Vec<SignedOperation>,
 ) -> Witness {
     let mut opt_db = std::fs::OpenOptions::new();
     opt_db.read(true).write(true);
-    let mut state = State::from_db_path(db_path.to_path_buf(), overload_head);
+    let mut state = State::from_db_path(db_path.to_path_buf(), override_head);
 
     println!("\nInitial root: {}", hex::encode(state.get_root()));
-    let _ = token_ledger_state_v2::state_transition(&mut state, operations, false);
+    let _ = state_transition(&mut state, operations, false);
     let witness = state.take_witness();
     println!("Post execution root: {}", hex::encode(state.get_root()));
     // dbg!(&witness);

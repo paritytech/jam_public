@@ -77,7 +77,7 @@ pub struct State {
     known_tokens: KnownTokens,
 }
 
-#[derive(Default, Encode, Decode, Debug)]
+#[derive(Clone, Default, Encode, Decode, Debug)]
 pub struct Witness {
     // root is part of the hashes
     pub hashes: Vec<(TreeIndex, Hash)>,
