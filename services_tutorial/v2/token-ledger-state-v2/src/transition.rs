@@ -12,16 +12,20 @@ use token_ledger_common::{
     canonical_transfer, verify_signature,
 };
 
+/// This is used to exemplify different means of passing data to the service. 
+/// The use-case is artificial, but try to cover all the access points we might want to use in a real implementation.
 #[derive(Clone, Copy, Debug, Encode, Decode, PartialEq, Eq)]
 pub enum Mode {
     // Directly send witness and operations in the workitem.
     Direct,
-    // Witness and operations are read from a preimage.
-    Preimage,
-    // Witness and operations are stored in segment and only processed later.
-    Segment,
-    // Used to trigger a batch of segment processing.
-    ProcessSegments,
+    // Send operations in the workitem and witness as an extrinsic.
+    Extrinsic,
+    // // Witness and operations are read from a preimage.
+    // Preimage,
+    // // Witness and operations are stored in segment and only processed later.
+    // Segment,
+    // // Used to trigger a batch of segment processing.
+    // ProcessSegments,
 }
 
 pub type Operations = Vec<SignedOperation>;

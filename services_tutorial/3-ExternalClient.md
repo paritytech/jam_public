@@ -71,12 +71,14 @@ Full state deserializing is done on each command call.
 (TODO: review whether this is accurate at the moment. We may not have implemented all the options, and we may be able to deliver the payload via extrinsic as well)
 
 Submission mechanism and payload delivery are different concerns:
-- submission mechanism: how the request reaches the service (for this tutorial, via submitted Work Items);
+- submission mechanism: how the request reaches the service (for this tutorial, via submitted Work Items, either through Jamt in the command line, or via a WorkPackage sent to an RPC node);
 - payload delivery mode: where refinement reads the transition payload from (directly in the Work Item, via preimage, or via segments).
 
-The direct mode is the simplest option: a single Work Item carries both operations and witness data. Refinement executes immediately from that payload.
+The 'direct' mode is the simplest option: a single Work Item carries both operations and witness data. 
+The 'extrinsic' mode splits this by passing the operations in the payload, and the witness as an extrinsic.
 
-This design simply put a batch of operations in a single work item. Processing of the batch is done in a single refinement call. Then refinement can directly transmit both new and old state root to accumulation which only update this root (if old root matches).
+
+Refinement executes immediately from that payload, possibly with several operations, and processing is done in a single refinement call. The outcome of each work item, indicating the corresponding state transition, is passed to accumulation, which only updates the root state once if all the intermediate transitions follow in a logical sequence and start at the current state root. 
 
 JAM persistence is therefore only:
 - a key value for the current state root

@@ -19,9 +19,11 @@ use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 use token_ledger_builder_v2::state::State;
-use token_ledger_common::{Operation, Signature, SignedOperation, Solicit};
+use token_ledger_common::{/*Operation, Signature, */ SignedOperation/* , Solicit*/};
 use token_ledger_service_v2::RefinePayload;
-use token_ledger_state_v2::{Hash, merkle::Witness};
+use token_ledger_state_v2::{Hash, merkle::Witness, state_transition};
+use token_ledger_state_v2::Mode;
+use bytes::Bytes;
 
 const BASE_NODE_PORT: u16 = 19800;
 const DEFAULT_NODE_INDEX: ValIndex = 0;
@@ -163,7 +165,24 @@ fn main() {
     let db_path = std::path::PathBuf::new();
     let witness = compute_transition_witness(&db_path, overload_head, &operations);
 
-    let refine_payload = RefinePayload {
+    let version = 
+        // if preimage_steps {
+        //     dbg!("Running preimage steps");
+        //     Mode::Preimage
+        // } else if with_segments {
+        //     dbg!("Running segment steps");
+        //     Mode::Segment
+        // } else 
+        if extrinsic_mode {
+            dbg!("Submitting in extrinsic mode");
+            Mode::Extrinsic
+        } else {
+            dbg!("Submitting in direct mode");
+            Mode::Direct
+        };
+
+
+    let full_payload = RefinePayload {
         version,
         operations,
         witness,
@@ -176,12 +195,12 @@ fn main() {
         // In preimage mode, we use this to compute a hash, and then
         // include it as the corresponding pre-image to a Solicit operation.
 
-        let output = export_direct_payload(output_path, &refine_payload);
+        let _output = export_direct_payload(output_path, &full_payload);
 
-        if preimage_steps {
-            std::mem::drop(output);
-            export_preimage_payload(output_path, db_path, overload_head, version);
-        }
+        // if preimage_steps {
+        //     std::mem::drop(output);
+        //     export_preimage_payload(output_path, db_path, override_head, version);
+        // }
     } else {
         println!("No output file specified, skipping writing payload to file");
     }
@@ -427,46 +446,46 @@ fn export_direct_payload(output_path: &PathBuf, refine_payload: &RefinePayload) 
     output
 }
 
-fn export_preimage_payload(
-    output_path: &PathBuf,
-    db_path: PathBuf,
-    overload_head: Option<Hash>,
-    version: token_ledger_state_v2::Mode,
-) {
-    println!("Processing with pre-image steps");
+// fn export_preimage_payload(
+//     output_path: &PathBuf,
+//     db_path: PathBuf,
+//     override_head: Option<Hash>,
+//     version: Mode,
+// ) {
+//     println!("Processing with pre-image steps");
 
-    let (hash, len) = compute_payload_hash(output_path);
+//     let (hash, len) = compute_payload_hash(output_path);
 
-    println!(
-        "Preimage hash: {}. Preimage length: {}",
-        hex::encode(hash),
-        len
-    );
+//     println!(
+//         "Preimage hash: {}. Preimage length: {}",
+//         hex::encode(hash),
+//         len
+//     );
 
-    let mut state = State::from_db_path(db_path, overload_head);
-    let operations: Vec<SignedOperation> = vec![SignedOperation {
-        // Dummy, unchecked in tutorial
-        signature: Signature([0; 64].into()),
-        operation: Operation::Solicit(Solicit {
-            on_root: state.get_root(),
-            hash,
-            len,
-        }),
-    }];
+//     let mut state = State::from_db_path(db_path, override_head);
+//     let operations: Vec<SignedOperation> = vec![SignedOperation {
+//         // Dummy, unchecked in tutorial
+//         signature: Signature([0; 64].into()),
+//         operation: Operation::Solicit(Solicit {
+//             on_root: state.get_root(),
+//             hash,
+//             len,
+//         }),
+//     }];
 
-    let _ = token_ledger_state_v2::state_transition(&mut state, &operations, false);
-    // only root as we only check right root for solicit
-    let witness = state.take_witness();
-    let solicit_payload = RefinePayload {
-        version,
-        operations,
-        witness,
-    };
-    let mut prep_path = output_path.clone();
-    prep_path.set_extension("prepare");
-    let mut output = std::fs::File::create(&prep_path).unwrap();
-    solicit_payload.encode_to(&mut output);
-}
+//     let _ = state_transition(&mut state, &operations, false);
+//     // only root as we only check right root for solicit
+//     let witness = state.take_witness();
+//     let solicit_payload = RefinePayload {
+//         version,
+//         operations,
+//         Some(witness),
+//     };
+//     let mut prep_path = output_path.clone();
+//     prep_path.set_extension("prepare");
+//     let mut output = std::fs::File::create(&prep_path).unwrap();
+//     solicit_payload.encode_to(&mut output);
+// }
 
 fn read_ops_from_file(path: &PathBuf) -> Vec<token_ledger_common::SignedOperation> {
     let mut input = std::fs::File::open(path).unwrap();
@@ -496,21 +515,21 @@ fn compute_transition_witness(
     witness
 }
 
-fn compute_payload_hash(file_path: &PathBuf) -> (Hash, u64) {
-    let mut payload_file = std::fs::File::open(file_path).unwrap();
-    let mut data = Vec::new();
-    payload_file.read_to_end(&mut data).unwrap();
-    println!(
-        "Read {} bytes from file {}",
-        data.len(),
-        file_path.display()
-    );
-    let hash_r = blake2b_simd::Params::new().hash_length(32).hash(&data);
-    let mut hash: Hash = [0; 32];
-    hash.copy_from_slice(hash_r.as_bytes());
-    let len = data.len() as u64;
-    (hash, len)
-}
+// fn compute_payload_hash(file_path: &PathBuf) -> (Hash, u64) {
+//     let mut payload_file = std::fs::File::open(file_path).unwrap();
+//     let mut data = Vec::new();
+//     payload_file.read_to_end(&mut data).unwrap();
+//     println!(
+//         "Read {} bytes from file {}",
+//         data.len(),
+//         file_path.display()
+//     );
+//     let hash_r = blake2b_simd::Params::new().hash_length(32).hash(&data);
+//     let mut hash: Hash = [0; 32];
+//     hash.copy_from_slice(hash_r.as_bytes());
+//     let len = data.len() as u64;
+//     (hash, len)
+// }
 
 pub fn print_debug(witness: &Witness) {
     println!("Witness:");

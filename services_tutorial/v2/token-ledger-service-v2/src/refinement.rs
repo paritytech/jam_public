@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
-use jam_pvm_common::{ApiError, error, info};
+use jam_pvm_common::{/*ApiError,*/ error, info};
 use token_ledger_state_v2::Hash;
 use token_ledger_state_v2::Mode;
 
@@ -50,12 +50,81 @@ pub fn refine_payload(payload: &[u8]) -> (Vec<u8>, usize) {
 
 fn refine_transition(
     mut payload: &[u8],
-    to_solicit: &mut Vec<token_ledger_state_v2::Solicit>,
-    exported_segments: &mut Vec<Hash>,
-    processed_segments: &mut Vec<Hash>,
-    allow_preimage: bool,
-    handle_segments: bool,
-) -> (Hash, Hash, usize, Mode, usize) {
+    _to_solicit: &mut Vec<token_ledger_state_v2::Solicit>,
+    _exported_segments: &mut Vec<Hash>,
+    _processed_segments: &mut Vec<Hash>,
+    _allow_preimage: bool,
+    _handle_segments: bool,
+) -> Option<(Hash, Hash, usize, Mode, usize)> {
+
+    // if version == Mode::Segment {
+    //     if handle_segments {
+    //         // put in segment
+    //         // here we should large payload put in multiple segments, but for tutorial we only use one and panic when payload too big.
+    //         match jam_pvm_common::refine::export_slice(original_payload) {
+    //             Ok(exported) => {
+    //                 let exported_hash = token_ledger_state_v2::hash_multiple(&[original_payload]);
+    //                 info!(
+    //                     "Inserted segment with hash {}, at index {}",
+    //                     hex::encode(&exported_hash),
+    //                     exported
+    //                 );
+    //                 exported_segments.push(exported_hash);
+    //                 // TODO a real noops would be better
+    //                 return Some((
+    //                     previous_root,
+    //                     previous_root,
+    //                     operations_len,
+    //                     version,
+    //                     read_size,
+    //                 ));
+    //             }
+    //             Err(ApiError::StorageFull) => {
+    //                 error!("cannot add segment, storage full, ignoring");
+    //             }
+    //             Err(e) => {
+    //                 error!("fail pushing segment {:?}", e);
+    //                 panic!("fail pushing segment {:?}", e);
+    //             }
+    //         }
+
+    //         return Some((previous_root, previous_root, 1, version, read_size));
+    //     }
+    //     // payload loaded from process segment will process next
+    // }
+    // if version == Mode::ProcessSegments {
+    //     let mut new_root = previous_root;
+    //     for ix in 0.. {
+    //         match jam_pvm_common::refine::import(ix) {
+    //             Some(segment) => {
+    //                 // note segment is padded, this is not an issue with payload decoding
+    //                 info!("Loading transition from segment, root {:?}.", previous_root);
+    //                 let (proot, nroot, ops, _, size) = refine_transition(
+    //                     segment.as_slice(),
+    //                     to_solicit,
+    //                     exported_segments,
+    //                     processed_segments,
+    //                     false,
+    //                     false,
+    //                 );
+
+    //                 // Note this force to run segment in sequence at this point
+    //                 if proot != new_root {
+    //                     error!("processing segment witness fail due to updated root");
+    //                 }
+    //                 new_root = nroot;
+    //                 info!("Transition from segment new root: {:?}.", new_root);
+    //                 operations_len += ops;
+    //                 let segment_hash =
+    //                     token_ledger_state_v2::hash_multiple(&[&segment.as_slice()[0..size]]);
+    //                 processed_segments.push(segment_hash);
+    //             }
+    //             None => break,
+    //         }
+    //     }
+    //     return (previous_root, new_root, operations_len, version, read_size);
+    // }
+
     let original_payload = payload;
     let Payload {
         version,
@@ -160,42 +229,42 @@ fn refine_transition(
 
     let mut new_root = partial_state.get_root();
 
-    for solicit in transition_result.to_solicit {
-        if solicit.on_root != previous_root {
-            error!(
-                "Skip a solicit preimage on non current root: {:?}, {:?}",
-                solicit.hash, solicit.on_root
-            );
-            continue;
-        }
-        info!("looking up preimage");
-        if let Some(preimage) = jam_pvm_common::refine::lookup(&solicit.hash) {
-            info!("got  preimage");
-            if !allow_preimage {
-                continue;
-            }
-            info!("loading transition from preimage");
-            let (proot, nroot, ops, _, _) = refine_transition(
-                &preimage,
-                to_solicit,
-                exported_segments,
-                processed_segments,
-                false,
-                false,
-            );
+    // for solicit in transition_result.to_solicit {
+    //     if solicit.on_root != previous_root {
+    //         error!(
+    //             "Skip a solicit preimage on non current root: {:?}, {:?}",
+    //             solicit.hash, solicit.on_root
+    //         );
+    //         continue;
+    //     }
+    //     info!("looking up preimage");
+    //     if let Some(preimage) = jam_pvm_common::refine::lookup(&solicit.hash) {
+    //         info!("got  preimage");
+    //         if !allow_preimage {
+    //             continue;
+    //         }
+    //         info!("loading transition from preimage");
+    //         let (proot, nroot, ops, _, _) = refine_transition(
+    //             &preimage,
+    //             to_solicit,
+    //             exported_segments,
+    //             processed_segments,
+    //             false,
+    //             false,
+    //         );
 
-            // Note this force to run preimage in sequence at this point
-            if proot != new_root {
-                error!("processing preimage witness fail due to updated root");
-            }
-            new_root = nroot;
-            operations_len += ops;
-        } else {
-            // solicit
-            info!("solliciting  preimage");
-            to_solicit.push(solicit);
-        }
-    }
+    //         // Note this force to run preimage in sequence at this point
+    //         if proot != new_root {
+    //             error!("processing preimage witness fail due to updated root");
+    //         }
+    //         new_root = nroot;
+    //         operations_len += ops;
+    //     } else {
+    //         // solicit
+    //         info!("solliciting  preimage");
+    //         to_solicit.push(solicit);
+    //     }
+    // }
 
     info!("[refinement] refine transition done");
 
