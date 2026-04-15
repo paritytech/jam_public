@@ -21,9 +21,11 @@ use std::path::PathBuf;
 use token_ledger_builder_v2::state::State;
 use token_ledger_common::{/*Operation, Signature, */ SignedOperation/* , Solicit*/};
 use token_ledger_service_v2::RefinePayload;
-use token_ledger_state_v2::{Hash, merkle::Witness, state_transition};
-use token_ledger_state_v2::Mode;
+use token_ledger_state_v2::{Hash, merkle::Witness, state_transition, verify_operations};
+use token_ledger_state_v2::{DeliveryMode, ExecutionMode};
 use bytes::Bytes;
+use jam_std_common::Service;
+
 
 const BASE_NODE_PORT: u16 = 19800;
 const DEFAULT_NODE_INDEX: ValIndex = 0;
@@ -163,47 +165,115 @@ fn main() {
     let db_path = std::path::PathBuf::new();
     let witness = compute_transition_witness(&db_path, override_head, &operations);
 
-    let version = 
-        // if preimage_steps {
-        //     dbg!("Running preimage steps");
-        //     Mode::Preimage
-        // } else if with_segments {
-        //     dbg!("Running segment steps");
-        //     Mode::Segment
-        // } else 
+    let delivery = 
         if extrinsic_mode {
             dbg!("Submitting in extrinsic mode");
-            Mode::Extrinsic
+            DeliveryMode::Extrinsic
         } else {
             dbg!("Submitting in direct mode");
-            Mode::Direct
+            DeliveryMode::Direct
         };
 
+    let connection_details = connect_rpc.then(
+            || ConnectionDetails { rpc_port: rpc_port.expect("Must be defined if connect_rpc is true"), service_id: opt_service.expect("Must be defined if connect_rpc is true")});
 
-    let full_payload = RefinePayload {
-        version,
-        operations: operations.clone(),
-        witness: Some(witness.clone()),
-    };
+    if !with_segments {
+        dbg!("Submitting package with Immediate execution");
+        let (payload, extrinsics) = match delivery {
+            DeliveryMode::Extrinsic => {
+                println!("Submitting in extrinsic mode, witness will be sent as extrinsic data in the first package");
+                (RefinePayload {
+                    delivery,
+                    execution: ExecutionMode::Immediate,
+                    operations: operations.clone(),
+                    witness: None,
+                }, Some(witness))
+            }
+            DeliveryMode::Direct => {
+                println!("Submitting in direct mode, witness will be included in WorkItem payload of the first package");
+                (RefinePayload {
+                    delivery,
+                    execution: ExecutionMode::Immediate,
+                    operations: operations.clone(),
+                    witness: Some(witness.clone()),
+                }, None)
+            }
+        };
+
+        create_and_submit_package(output_path, &payload, extrinsics, 0, connection_details, "Immediate");
+    } else {    
+        dbg!("Submitting two packages with segments, with Deferring and Deferred execution");
+
+        let (first_payload, extrinsics) = match delivery {
+            DeliveryMode::Extrinsic => {
+                println!("Submitting in extrinsic mode, witness will be sent as extrinsic data in the first package");
+                (RefinePayload {
+                    delivery,
+                    execution: ExecutionMode::Deferring,
+                    operations: operations.clone(),
+                    witness: None,
+                }, Some(witness))
+            }
+            DeliveryMode::Direct => {
+                println!("Submitting in direct mode, witness will be included in WorkItem payload of the first package");
+                (RefinePayload {
+                    delivery,
+                    execution: ExecutionMode::Deferring,
+                    operations: operations.clone(),
+                    witness: Some(witness.clone()),
+                }, None)
+            }
+        };
+        
+        create_and_submit_package(output_path, &first_payload, extrinsics, 1, connection_details, "Deferring");
+
+        let second_payload = RefinePayload{
+            delivery: DeliveryMode::Direct,
+            execution: ExecutionMode::Deferred,
+            witness: None,
+             // In real code, we should read the verified data stored by Deferring execution and include it in the payload of Deferred execution, for tutorial we just put the same operations and witness for simplicity.
+            operations: Vec::new(), // we do not need to include operations in the second package as they are already included in the first package, but for simplicity we include them again.  
+        };
+
+        create_and_submit_package(output_path, &second_payload, None, 0, connection_details, "Deferred");
+
+    }
+}
+
+pub fn export_payload(output_path: Option<&PathBuf>, payload: &RefinePayload) {
 
     if let Some(output_path) = output_path {
         println!("Output: {}", output_path.display());
-
+        
         // Create the output file. In direct and extrinsic mode, this is the end result.
         // In preimage mode, we use this to compute a hash, and then
         // include it as the corresponding pre-image to a Solicit operation.
-
-        let _output = export_direct_payload(output_path, &full_payload);
-
-        // if preimage_steps {
-        //     std::mem::drop(output);
-        //     export_preimage_payload(output_path, db_path, override_head, version);
-        // }
+        
+        let _output = export_direct_payload(output_path, &payload);        
     } else {
         println!("No output file specified, skipping writing payload to file");
     }
+        
+}
+        
+#[derive(Copy, Clone)]
+struct ConnectionDetails {
+    rpc_port: u16,
+    service_id: u32,
+}
 
-    if connect_rpc {
+
+pub fn create_and_submit_package(
+        output_path: Option<&PathBuf>, 
+        payload: &RefinePayload, 
+        extrinsic: Option<Witness>,
+        export_count: u16,
+        conn: Option<ConnectionDetails>, 
+        prefix: &str,
+    ) {
+    export_payload(output_path, &payload);
+
+    if let Some(conn) = conn {
         let rt = match tokio::runtime::Runtime::new() {
             Ok(rt) => rt,
             Err(error) => {
@@ -212,32 +282,12 @@ fn main() {
             }
         };
 
-        let rpc_port = rpc_port.expect("Checked RPC port above");
+        let rpc_port = conn.rpc_port;
         println!("Submitting to RPC node at port {rpc_port}...");
 
-        let (payload, extrinsic) = match version {
-            Mode::Extrinsic => {
-                println!("Submitting in extrinsic mode, witness will be sent as extrinsic data");
-                (RefinePayload {
-                    version,
-                    operations,
-                    witness: None, 
-                 }, Some(witness))
-            }
-            Mode::Direct => {
-                println!("Submitting in direct mode, witness will be included in WorkItem payload");
-                (full_payload, None)
-            }
-            // Mode::Preimage => {
-            //     println!("Submitting in preimage mode, payload will include a Solicit operation with the payload hash, and the witness will be included in the WorkItem payload");
-            // }
-            // Mode::Segment => {
-            //     println!("Submitting in segment mode, payload will include Segment operations with segment hashes, and the witness will be included in the WorkItem payload");
-        };
-
-        match rt.block_on(submit_to_node(rpc_port, opt_service, payload, extrinsic)) {
-            Ok(_) => {
-                println!("✅ RPC submission successful");
+        match rt.block_on(submit_to_node(rpc_port, Some(conn.service_id), &payload, extrinsic, export_count)) {
+            Ok(package_hash) => {
+                println!("✅ [{}] RPC submission successful: {package_hash} - payload execution type: {:?}", prefix, payload.execution);
             }
             Err(error) => {
                 println!("⚠️  RPC submission failed: {}", error);
@@ -272,9 +322,10 @@ pub(crate) fn parse_service_id_hex(input: &str) -> Option<u32> {
 async fn submit_to_node(
     rpc_port: u16,
     service_id: Option<u32>,
-    payload: RefinePayload,
+    payload: &RefinePayload,
     extrinsic_witness: Option<Witness>,
-) -> Result<(), NodeError> {
+    export_count: u16,
+) -> Result<WorkPackageHash, NodeError> {
     let node = match connect_to_node(rpc_port).await {
         Ok(node) => node,
         Err(error) => {
@@ -285,46 +336,52 @@ async fn submit_to_node(
     println!("Connected to RPC node, submitting payload...");
 
     let (context, _anchor_slot) = create_refine_context(&node).await?;
-    let anchor = context.anchor;
+    // let anchor = context.anchor;
+    println!("Created context for submission");
 
     let service_id = service_id.expect("Service ID is required to submit to RPC node");
-    let service = match node
-        .service_data(anchor, service_id)
-        .await?
-        .ok_or_else(|| println!("Service {service_id} not found at anchor {:?}", anchor))
-    {
-        Ok(service) => service,
-        Err(_) => {
-            println!("⚠️  Service {service_id} not found at anchor {:?}", anchor);
-            std::process::exit(1);
-        }
+
+    let Ok((service, null_authorizer_hash)) = get_service_data(&node, service_id, context.anchor).await else {
+        std::process::exit(1);
     };
 
-    let (null_authorizer_hash, auth_code_preimage_available) =
-        get_authorizer(&node, anchor).await?;
+    // let service = match node
+    //     .service_data(anchor, service_id)
+    //     .await?
+    //     .ok_or_else(|| println!("Service {service_id} not found at anchor {:?}", anchor))
+    // {
+    //     Ok(service) => service,
+    //     Err(_) => {
+    //         println!("⚠️  Service {service_id} not found at anchor {:?}", anchor);
+    //         std::process::exit(1);
+    //     }
+    // };
 
-    let service_code_preimage_available = node
-        .service_preimage(anchor, service_id, service.code_hash.0)
-        .await?
-        .is_some();
+    // let (null_authorizer_hash, auth_code_preimage_available) =
+    //     get_authorizer(&node, anchor).await?;
 
-    println!(
-        "Is authorizer available: {:?}",
-        auth_code_preimage_available
-    );
-    if !service_code_preimage_available || !auth_code_preimage_available {
-        println!(
-            "Preflight failed before submit: code preimage missing. service_preimage_available={}, authorizer_preimage_available={}\nservice={:08x}, service_code_hash={}, auth_code_host={:08x}, null_authorizer_hash={}, anchor={:?}\nHint: this commonly happens when targeting externally deployed services whose code preimage is not available to this node.",
-            service_code_preimage_available,
-            auth_code_preimage_available,
-            service_id,
-            hex::encode(service.code_hash.0),
-            BOOTSTRAP_SERVICE_ID,
-            hex::encode(null_authorizer_hash.0),
-            anchor
-        );
-        std::process::exit(1);
-    }
+    // let service_code_preimage_available = node
+    //     .service_preimage(anchor, service_id, service.code_hash.0)
+    //     .await?
+    //     .is_some();
+
+    // println!(
+    //     "Is authorizer available: {:?}",
+    //     auth_code_preimage_available
+    // );
+    // if !service_code_preimage_available || !auth_code_preimage_available {
+    //     println!(
+    //         "Preflight failed before submit: code preimage missing. service_preimage_available={}, authorizer_preimage_available={}\nservice={:08x}, service_code_hash={}, auth_code_host={:08x}, null_authorizer_hash={}, anchor={:?}\nHint: this commonly happens when targeting externally deployed services whose code preimage is not available to this node.",
+    //         service_code_preimage_available,
+    //         auth_code_preimage_available,
+    //         service_id,
+    //         hex::encode(service.code_hash.0),
+    //         BOOTSTRAP_SERVICE_ID,
+    //         hex::encode(null_authorizer_hash.0),
+    //         anchor
+    //     );
+    //     std::process::exit(1);
+    // }
 
     // We create an empty extrinsics list here, for demonstration purposes only.
     let extrinsic_data = extrinsic_witness
@@ -336,44 +393,53 @@ async fn submit_to_node(
         hash: extrinsic_hash,
         len: extrinsic_data.len() as u32,
     };
-    let extrinsics = vec![extrinsic_specs]
-        .try_into()
-        .expect("We only have one extrinsic, so this should never fail");
+    // let extrinsics = vec![extrinsic_specs]
+    //     .try_into()
+    //     .expect("We only have one extrinsic, so this should never fail");
     let extrinsic_bytes = vec![Bytes::copy_from_slice(&extrinsic_data)];
 
-    let export_count = 0;
 
-    println!("Created context for submission");
+    // // export_count must be at least as large as the number of segments we export during refinement,
+    // // or else we will have a StorageFull error.
+    // let item = WorkItem {
+    //     service: service_id,
+    //     code_hash: service.code_hash,
+    //     payload: payload.encode().into(),
+    //     refine_gas_limit: max_refine_gas(),
+    //     accumulate_gas_limit: max_accumulate_gas(),
+    //     import_segments: Default::default(),
+    //     extrinsics,
+    //     export_count,
+    // };
+    // println!("Created work item for submission without imports");
 
-    let item = WorkItem {
-        service: service_id,
-        code_hash: service.code_hash,
-        payload: payload.encode().into(),
-        refine_gas_limit: max_refine_gas(),
-        accumulate_gas_limit: max_accumulate_gas(),
-        import_segments: Default::default(),
-        extrinsics,
+    // let package = WorkPackage {
+    //     authorization: Authorization::new(),
+    //     auth_code_host: BOOTSTRAP_SERVICE_ID,
+    //     authorizer: Authorizer {
+    //         code_hash: null_authorizer_hash,
+    //         config: AuthConfig::new(),
+    //     },
+    //     context,
+    //     items: vec![item]
+    //         .try_into()
+    //         .expect("We only have one item, so this should never fail"),
+    // };
+
+    let (encoded_package, package_hash) = create_package(
+        service_id,
+        service,
+        payload,
         export_count,
-    };
-    println!("Created work item for submission without imports");
-
-    let package = WorkPackage {
-        authorization: Authorization::new(),
-        auth_code_host: BOOTSTRAP_SERVICE_ID,
-        authorizer: Authorizer {
-            code_hash: null_authorizer_hash,
-            config: AuthConfig::new(),
-        },
+        null_authorizer_hash,
         context,
-        items: vec![item]
-            .try_into()
-            .expect("We only have one item, so this should never fail"),
-    };
+        extrinsic_specs,
+    );
 
     println!("Created work package for submission");
 
-    let encoded_package = package.encode();
-    let package_hash: WorkPackageHash = hash_raw(&encoded_package).into();
+    // let encoded_package = package.encode();
+    // let package_hash: WorkPackageHash = hash_raw(&encoded_package).into();
 
     println!("Submitting work package");
     let max_core = val_count() / VALS_PER_CORE as CoreIndex;
@@ -409,7 +475,98 @@ async fn submit_to_node(
         submitted_core
     );
 
-    Ok(())
+    Ok(package_hash)
+}
+
+async fn get_service_data(node: &WsClient, service_id: u32, anchor: HeaderHash) -> Result<(Service, CodeHash), NodeError> {
+    let service = match node
+        .service_data(anchor, service_id)
+        .await?
+        .ok_or_else(|| println!("Service {service_id} not found at anchor {:?}", anchor))
+    {
+        Ok(service) => service,
+        Err(_) => {
+            println!("⚠️  Service {service_id} not found at anchor {:?}", anchor);
+            std::process::exit(1);
+        }
+    };
+
+    let (null_authorizer_hash, auth_code_preimage_available) =
+        get_authorizer(&node, anchor).await?;
+
+    let service_code_preimage_available = node
+        .service_preimage(anchor, service_id, service.code_hash.0)
+        .await?
+        .is_some();
+
+    println!(
+        "Is authorizer available: {:?}",
+        auth_code_preimage_available
+    );
+    if !service_code_preimage_available || !auth_code_preimage_available {
+        println!(
+            "Preflight failed before submit: code preimage missing. service_preimage_available={}, authorizer_preimage_available={}\nservice={:08x}, service_code_hash={}, auth_code_host={:08x}, null_authorizer_hash={}, anchor={:?}\nHint: this commonly happens when targeting externally deployed services whose code preimage is not available to this node.",
+            service_code_preimage_available,
+            auth_code_preimage_available,
+            service_id,
+            hex::encode(service.code_hash.0),
+            BOOTSTRAP_SERVICE_ID,
+            hex::encode(null_authorizer_hash.0),
+            anchor
+        );
+        Err(NodeError::Other("Required preimages not available".to_string()))
+    } else {
+        Ok((service, null_authorizer_hash))
+    }
+}
+
+fn create_package(
+    service_id: u32,
+    service: Service,
+    payload: &RefinePayload,
+    export_count: u16,
+    authorizer_hash: CodeHash,
+    context: RefineContext,
+    extrinsic: ExtrinsicSpec,
+) -> (Vec<u8>, WorkPackageHash) {
+
+    let extrinsics = vec![extrinsic]
+        .try_into()
+        .expect("We only have one extrinsic, so this should never fail");
+
+    // export_count must be at least as large as the number of segments we export during refinement,
+    // or else we will have a StorageFull error.
+    let item = WorkItem {
+        service: service_id,
+        code_hash: service.code_hash,
+        payload: payload.encode().into(),
+        refine_gas_limit: max_refine_gas(),
+        accumulate_gas_limit: max_accumulate_gas(),
+        import_segments: Default::default(),
+        extrinsics,
+        export_count,
+    };
+    println!("Created work item for submission without imports");
+
+    let package = WorkPackage {
+        authorization: Authorization::new(),
+        auth_code_host: BOOTSTRAP_SERVICE_ID,
+        authorizer: Authorizer {
+            code_hash: authorizer_hash, // instantiated usually to be null_authorizer_hash
+            config: AuthConfig::new(),
+        },
+        context,
+        items: vec![item]
+            .try_into()
+            .expect("We only have one item, so this should never fail"),
+    };
+
+    println!("Created work package for submission");
+
+    let encoded_package = package.encode();
+    let package_hash: WorkPackageHash = hash_raw(&encoded_package).into();
+
+    (encoded_package, package_hash)
 }
 
 async fn create_refine_context(node: &WsClient) -> Result<(RefineContext, Slot), NodeError> {
@@ -468,46 +625,6 @@ fn export_direct_payload(output_path: &PathBuf, refine_payload: &RefinePayload) 
     output
 }
 
-// fn export_preimage_payload(
-//     output_path: &PathBuf,
-//     db_path: PathBuf,
-//     override_head: Option<Hash>,
-//     version: Mode,
-// ) {
-//     println!("Processing with pre-image steps");
-
-//     let (hash, len) = compute_payload_hash(output_path);
-
-//     println!(
-//         "Preimage hash: {}. Preimage length: {}",
-//         hex::encode(hash),
-//         len
-//     );
-
-//     let mut state = State::from_db_path(db_path, override_head);
-//     let operations: Vec<SignedOperation> = vec![SignedOperation {
-//         // Dummy, unchecked in tutorial
-//         signature: Signature([0; 64].into()),
-//         operation: Operation::Solicit(Solicit {
-//             on_root: state.get_root(),
-//             hash,
-//             len,
-//         }),
-//     }];
-
-//     let _ = state_transition(&mut state, &operations, false);
-//     // only root as we only check right root for solicit
-//     let witness = state.take_witness();
-//     let solicit_payload = RefinePayload {
-//         version,
-//         operations,
-//         Some(witness),
-//     };
-//     let mut prep_path = output_path.clone();
-//     prep_path.set_extension("prepare");
-//     let mut output = std::fs::File::create(&prep_path).unwrap();
-//     solicit_payload.encode_to(&mut output);
-// }
 
 fn read_ops_from_file(path: &PathBuf) -> Vec<token_ledger_common::SignedOperation> {
     let mut input = std::fs::File::open(path).unwrap();
@@ -529,29 +646,13 @@ fn compute_transition_witness(
     let mut state = State::from_db_path(db_path.to_path_buf(), override_head);
 
     println!("\nInitial root: {}", hex::encode(state.get_root()));
-    let _ = state_transition(&mut state, operations, false);
+    let _ = state_transition(&mut state, operations);
     let witness = state.take_witness();
     println!("Post execution root: {}", hex::encode(state.get_root()));
     // dbg!(&witness);
     print_debug(&witness);
     witness
 }
-
-// fn compute_payload_hash(file_path: &PathBuf) -> (Hash, u64) {
-//     let mut payload_file = std::fs::File::open(file_path).unwrap();
-//     let mut data = Vec::new();
-//     payload_file.read_to_end(&mut data).unwrap();
-//     println!(
-//         "Read {} bytes from file {}",
-//         data.len(),
-//         file_path.display()
-//     );
-//     let hash_r = blake2b_simd::Params::new().hash_length(32).hash(&data);
-//     let mut hash: Hash = [0; 32];
-//     hash.copy_from_slice(hash_r.as_bytes());
-//     let len = data.len() as u64;
-//     (hash, len)
-// }
 
 pub fn print_debug(witness: &Witness) {
     println!("Witness:");
