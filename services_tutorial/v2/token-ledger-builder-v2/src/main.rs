@@ -211,7 +211,7 @@ fn main() {
         };
 
         if let Some(conn) = connection_details {
-            let package_hash =
+            let _ =
                 create_and_submit_package(output_path, &payload, extrinsics, 0, conn, None);
         }
     } else {
@@ -279,7 +279,7 @@ pub fn export_payload(output_path: Option<&PathBuf>, payload: &RefinePayload) {
         // In preimage mode, we use this to compute a hash, and then
         // include it as the corresponding pre-image to a Solicit operation.
 
-        let _output = export_direct_payload(output_path, &payload);
+        let _output = export_direct_payload(output_path, payload);
     } else {
         println!("No output file specified, skipping writing payload to file");
     }
@@ -299,7 +299,7 @@ pub fn create_and_submit_package(
     conn: ConnectionDetails,
     prev_wp_hash: Option<WorkPackageHash>,
 ) -> WorkPackageHash {
-    export_payload(output_path, &payload);
+    export_payload(output_path, payload);
 
     let rt = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
@@ -315,7 +315,7 @@ pub fn create_and_submit_package(
     match rt.block_on(submit_to_node(
         rpc_port,
         Some(conn.service_id),
-        &payload,
+        payload,
         extrinsic,
         export_count,
         prev_wp_hash,
@@ -396,11 +396,9 @@ async fn submit_to_node(
     let extrinsic_bytes = vec![Bytes::copy_from_slice(&extrinsic_data)];
 
     let (encoded_package, package_hash) = create_package(
-        service_id,
-        service,
+        ServiceData { service_id, service, authorizer_hash: null_authorizer_hash },
         payload,
         export_count,
-        null_authorizer_hash,
         context,
         extrinsic_specs,
         prev_wp_hash,
@@ -462,7 +460,7 @@ async fn get_service_data(
     };
 
     let (null_authorizer_hash, auth_code_preimage_available) =
-        get_authorizer(&node, anchor).await?;
+        get_authorizer(node, anchor).await?;
 
     let service_code_preimage_available = node
         .service_preimage(anchor, service_id, service.code_hash.0)
@@ -492,12 +490,16 @@ async fn get_service_data(
     }
 }
 
-fn create_package(
+struct ServiceData {
     service_id: u32,
     service: Service,
+    authorizer_hash: CodeHash,
+}
+
+fn create_package(
+    service_data: ServiceData,
     payload: &RefinePayload,
     export_count: u16,
-    authorizer_hash: CodeHash,
     context: RefineContext,
     extrinsic: ExtrinsicSpec,
     import_from_package: Option<WorkPackageHash>,
@@ -519,8 +521,8 @@ fn create_package(
     };
 
     let item = WorkItem {
-        service: service_id,
-        code_hash: service.code_hash,
+        service: service_data.service_id,
+        code_hash: service_data.service.code_hash,
         payload: payload.encode().into(),
         refine_gas_limit: max_refine_gas(),
         accumulate_gas_limit: max_accumulate_gas(),
@@ -536,7 +538,7 @@ fn create_package(
         authorization: Authorization::new(),
         auth_code_host: BOOTSTRAP_SERVICE_ID,
         authorizer: Authorizer {
-            code_hash: authorizer_hash, // instantiated usually to be null_authorizer_hash
+            code_hash: service_data.authorizer_hash,
             config: AuthConfig::new(),
         },
         context,
@@ -629,7 +631,7 @@ fn compute_transition_witness(
     let mut state = State::from_db_path(db_path.to_path_buf(), override_head);
 
     println!("\nInitial root: {}", hex::encode(state.get_root()));
-    let _ = state_transition(&mut state, operations);
+    state_transition(&mut state, operations);
     let witness = state.take_witness();
     println!("Post execution root: {}", hex::encode(state.get_root()));
     // dbg!(&witness);
