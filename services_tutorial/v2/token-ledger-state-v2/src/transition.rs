@@ -8,14 +8,14 @@ use codec::{Decode, Encode};
 use jam_pvm_common::{info, warn};
 use jam_types::Hash;
 use token_ledger_common::{
-    AccountId, Counterparts, Operation, SignedOperation, Solicit, TokenId, VerificationKey,
+    AccountId, Counterparts, Operation, SignedOperation, TokenId, VerificationKey,
     canonical_transfer, verify_signature,
 };
 
 /// This is used to exemplify different means of passing data to the service. 
 /// The use-case is artificial, but try to cover all the access points we might want to use in a real implementation.
 #[derive(Clone, Copy, Debug, Encode, Decode, PartialEq, Eq)]
-pub enum Mode {
+pub enum DeliveryMode {
     // Directly send witness and operations in the workitem.
     Direct,
     // Send operations in the workitem and witness as an extrinsic.
@@ -28,6 +28,16 @@ pub enum Mode {
     // ProcessSegments,
 }
 
+#[derive(Copy, Clone, Debug, Encode, Decode)]
+pub enum ExecutionMode {
+    // Execute the operation immediately with the data received in payload and/or extrinsic.
+    Immediate,
+    // Verify the data received, but do not execute it. Export the verified data to the D3L and defer execution to a later WorkPackage
+    Deferring,
+    // Read the data stored by a Deferring WorkPackage and complete its execution
+    Deferred,
+}
+
 pub type Operations = Vec<SignedOperation>;
 
 pub trait StateOps {
@@ -38,23 +48,11 @@ pub trait StateOps {
     fn root(&self) -> Hash;
 }
 
-pub struct StateTransitionResult {
-    pub to_solicit: Vec<Solicit>,
-}
-
-pub fn state_transition<S: StateOps>(
-    state: &mut S,
-    operations: &Operations,
-    checked_operations: bool,
-) -> StateTransitionResult {
-    info!("Processing external client state transition.",);
-
-    let mut staged_transfers: BTreeMap<(TokenId, Counterparts), i64> = BTreeMap::new();
-
-    let mut to_solicit: Vec<Solicit> = Default::default();
-
-    let initial_root = state.root();
-
+/// Verifies if the operations are correctly signed and intrinsically correct.
+/// This does not check if they're valid in the current state of the chain, 
+/// as that can only be done in accumulation, only if their parameters make sense
+/// for a valid operation (e.g. transferring a positive value to a different account).
+pub fn verify_operations(operations: &Operations) -> bool {
     for op in operations {
         let SignedOperation {
             operation,
@@ -62,40 +60,66 @@ pub fn state_transition<S: StateOps>(
         } = op;
 
         match operation {
-            Operation::Solicit(solicit) => {
-                // this is mostly for two step: we commit to a state transition on a given root
-                // then the root is lock, note we can receive multiple on a root when it is unlock.
-                // For demo we will lock root only every five blocks, and wait for actual preimage
-                // only five block too.
+            Operation::Mint { to: _, token_id: _, amount } => {
+                let admin_key: VerificationKey =
+                    VerificationKey::try_from(token_ledger_common::admin())
+                        .expect("Hard-coded Admin key");
 
-                if solicit.on_root == initial_root {
-                    to_solicit.push(solicit.clone());
+                if verify_signature(&operation, &signature, admin_key).is_err() {
+                    warn!("Invalid signature for Mint operation");
+                    return false;
+                }
+                if *amount == 0 {
+                    warn!("Mint: Zero amount");
+                    return false;
                 }
             }
+            Operation::Transfer { from, to, token_id: _, amount } => {
+                let Ok(signer_key) = VerificationKey::try_from(*from) else {
+                    warn!("Invalid 'from' account in transfer operation: {:?}", from);
+                    return false;
+                };
+                if verify_signature(&operation, &signature, signer_key).is_err() {
+                    warn!("Invalid signature for Transfer operation");
+                    return false;
+                }
+                if *amount == 0 {
+                    warn!("Transfer: Zero amount");
+                    return false;
+                }
+                if from == to {
+                    warn!("Transfer: Self-transfer not allowed");
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+/// This function progresses a state with the results of the operations.
+/// The state received might not correspond actually to the current state of the chain,
+/// but that cannot be known at refinement time and is the responsibility of the accumulation to check.
+pub fn state_transition<S: StateOps>(
+    state: &mut S,
+    operations: &Operations,
+) {
+    info!("[Refinement] Processing external client state transition.");
+
+    let mut staged_transfers: BTreeMap<(TokenId, Counterparts), i64> = BTreeMap::new();
+
+    for op in operations {
+        let SignedOperation {
+            operation,
+            signature: _,
+        } = op;
+
+        match operation {
             Operation::Mint {
                 amount,
                 to,
                 token_id,
             } => {
-                if !checked_operations {
-                    let admin_key: VerificationKey =
-                        VerificationKey::try_from(token_ledger_common::admin())
-                            .expect("Hard-coded Admin key");
-
-                    if verify_signature(&operation, &signature, admin_key).is_err() {
-                        warn!("Invalid signature for Mint operation");
-
-                        // For the sake of the tutorial, and ease of use, we don't reject if the signature
-                        // is invalid. We do compute the verification here to show that expensive
-                        // computation should go in refine(). But skipping actual validation frees us from
-                        // having to create actual signatures when passing test data to the service.
-                    }
-                }
-
-                if *amount == 0 {
-                    warn!("Mint: Zero amount");
-                    continue;
-                }
                 process_mint(state, *to, *token_id, *amount)
             }
             Operation::Transfer {
@@ -104,30 +128,6 @@ pub fn state_transition<S: StateOps>(
                 token_id,
                 amount,
             } => {
-                if !checked_operations {
-                    let Ok(signer_key) = VerificationKey::try_from(*from) else {
-                        warn!("Invalid 'from' account in transfer operation: {:?}", from);
-                        continue;
-                    };
-                    if verify_signature(&operation, &signature, signer_key).is_err() {
-                        warn!("Invalid signature for Transfer operation");
-
-                        // For the sake of the tutorial, and ease of use, we don't reject if the signature
-                        // is invalid. We do compute the verification here to show that expensive
-                        // computation should go in refine(). But skipping actual validation frees us from
-                        // having to create actual signatures when passing test data to the service.
-                    }
-                }
-
-                // Validate transfer request
-                if *amount == 0 {
-                    warn!("Transfer: Zero amount");
-                    continue;
-                }
-                if from == to {
-                    warn!("Transfer: Self-transfer not allowed");
-                    continue;
-                }
                 let transfer = canonical_transfer(*from, *to, *token_id, *amount);
                 staged_transfers
                     .entry(transfer.0)
@@ -145,13 +145,11 @@ pub fn state_transition<S: StateOps>(
             process_transfer(state, to, from, token_id, (-net_amount) as u64);
         } // if zero, skip
     }
-
-    StateTransitionResult { to_solicit }
 }
 
 fn process_mint<S: StateOps>(state: &mut S, to: AccountId, token_id: TokenId, amount: u64) {
     if state.known_tokens_contains(token_id) {
-        warn!("Minting already minted token: {}", token_id);
+        warn!("[Refinement] Minting already minted token: {}", token_id);
         return;
     }
 
@@ -162,8 +160,7 @@ fn process_mint<S: StateOps>(state: &mut S, to: AccountId, token_id: TokenId, am
     let new_bal = current_bal.saturating_add(amount);
     state.set_balance(to, token_id, new_bal);
 
-    info!(
-        "Minted {} of token {} to controller account {:?}. New balance: {}",
+    info!("[Refinement] Minted {} of token {} to controller account {:?}. New balance: {}",
         amount,
         token_id,
         hex::encode(to),
@@ -179,7 +176,7 @@ fn process_transfer<S: StateOps>(
     amount: u64,
 ) {
     if !state.known_tokens_contains(token_id) {
-        warn!("Trying to transfer unknown token: {}", token_id);
+        warn!("[Refinement] Trying to transfer unknown token: {}", token_id);
         return;
     }
 
@@ -187,7 +184,7 @@ fn process_transfer<S: StateOps>(
 
     if from_bal < amount {
         warn!(
-            "Insufficient balance: account {:?} has {} but tried to send {}",
+            "[Refinement] Insufficient balance: account {:?} has {} but tried to send {}",
             hex::encode(from),
             from_bal,
             amount
@@ -201,7 +198,7 @@ fn process_transfer<S: StateOps>(
     state.set_balance(to, token_id, to_bal.saturating_add(amount));
 
     info!(
-        "Transferred {} of token {} from {:?} to {:?}",
+        "[Refinement] Transferred {} of token {} from {:?} to {:?}",
         amount,
         token_id,
         hex::encode(from),

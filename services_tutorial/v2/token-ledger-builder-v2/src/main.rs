@@ -10,7 +10,7 @@ use jam_std_common::{Node, NodeError, NodeExt, hash_raw};
 use jam_tooling::CommonArgs;
 use jam_types::{
     AuthConfig, Authorization, Authorizer, CodeHash, CoreIndex, ExtrinsicSpec, HeaderHash,
-    RefineContext, Slot, VALS_PER_CORE, ValIndex, WorkItem, WorkPackage, WorkPackageHash,
+    ImportSpec, RootIdentifier, RefineContext, Slot, VALS_PER_CORE, ValIndex, WorkItem, WorkPackage, WorkPackageHash,
     max_accumulate_gas, max_refine_gas, val_count,
 };
 use jsonrpsee::ws_client::WsClient;
@@ -19,12 +19,12 @@ use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 use token_ledger_builder_v2::state::State;
-use token_ledger_common::{/*Operation, Signature, */ SignedOperation/* , Solicit*/};
+use token_ledger_common::{SignedOperation};
 use token_ledger_service_v2::RefinePayload;
-use token_ledger_state_v2::{Hash, merkle::Witness, state_transition, verify_operations};
+use token_ledger_state_v2::{Hash, merkle::Witness, state_transition};
 use token_ledger_state_v2::{DeliveryMode, ExecutionMode};
 use bytes::Bytes;
-use jam_std_common::Service;
+use jam_std_common::{Service};
 
 
 const BASE_NODE_PORT: u16 = 19800;
@@ -200,7 +200,9 @@ fn main() {
             }
         };
 
-        create_and_submit_package(output_path, &payload, extrinsics, 0, connection_details, "Immediate");
+        if let Some(conn) = connection_details {
+            let package_hash = create_and_submit_package(output_path, &payload, extrinsics, 0, conn, None);
+        }
     } else {    
         dbg!("Submitting two packages with segments, with Deferring and Deferred execution");
 
@@ -224,8 +226,6 @@ fn main() {
                 }, None)
             }
         };
-        
-        create_and_submit_package(output_path, &first_payload, extrinsics, 1, connection_details, "Deferring");
 
         let second_payload = RefinePayload{
             delivery: DeliveryMode::Direct,
@@ -235,7 +235,10 @@ fn main() {
             operations: Vec::new(), // we do not need to include operations in the second package as they are already included in the first package, but for simplicity we include them again.  
         };
 
-        create_and_submit_package(output_path, &second_payload, None, 0, connection_details, "Deferred");
+        if let Some(conn) = connection_details {
+            let first_package_hash = create_and_submit_package(output_path, &first_payload, extrinsics, 1, conn, None);
+            let _ = create_and_submit_package(output_path, &second_payload, None, 0, conn, Some(first_package_hash));
+        }
 
     }
 }
@@ -257,7 +260,7 @@ pub fn export_payload(output_path: Option<&PathBuf>, payload: &RefinePayload) {
 }
         
 #[derive(Copy, Clone)]
-struct ConnectionDetails {
+pub struct ConnectionDetails {
     rpc_port: u16,
     service_id: u32,
 }
@@ -268,31 +271,30 @@ pub fn create_and_submit_package(
         payload: &RefinePayload, 
         extrinsic: Option<Witness>,
         export_count: u16,
-        conn: Option<ConnectionDetails>, 
-        prefix: &str,
-    ) {
+        conn: ConnectionDetails, 
+        prev_wp_hash: Option<WorkPackageHash>
+    ) -> WorkPackageHash {
     export_payload(output_path, &payload);
 
-    if let Some(conn) = conn {
-        let rt = match tokio::runtime::Runtime::new() {
-            Ok(rt) => rt,
-            Err(error) => {
-                println!("⚠️  Failed to create Tokio runtime: {}", error);
-                std::process::exit(1);
-            }
-        };
+    let rt = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(error) => {
+            println!("⚠️  Failed to create Tokio runtime: {}", error);
+            std::process::exit(1);
+        }
+    };
 
-        let rpc_port = conn.rpc_port;
-        println!("Submitting to RPC node at port {rpc_port}...");
+    let rpc_port = conn.rpc_port;
+    println!("Submitting to RPC node at port {rpc_port}...");
 
-        match rt.block_on(submit_to_node(rpc_port, Some(conn.service_id), &payload, extrinsic, export_count)) {
-            Ok(package_hash) => {
-                println!("✅ [{}] RPC submission successful: {package_hash} - payload execution type: {:?}", prefix, payload.execution);
-            }
-            Err(error) => {
-                println!("⚠️  RPC submission failed: {}", error);
-                std::process::exit(1);
-            }
+    match rt.block_on(submit_to_node(rpc_port, Some(conn.service_id), &payload, extrinsic, export_count, prev_wp_hash)) {
+        Ok(package_hash) => {
+            println!("✅ RPC submission successful: {package_hash} - payload execution type: {:?}", payload.execution);
+            package_hash
+        }
+        Err(error) => {
+            println!("⚠️  RPC submission failed: {}", error);
+            std::process::exit(1);
         }
     }
 }
@@ -325,6 +327,7 @@ async fn submit_to_node(
     payload: &RefinePayload,
     extrinsic_witness: Option<Witness>,
     export_count: u16,
+    prev_wp_hash: Option<WorkPackageHash>,
 ) -> Result<WorkPackageHash, NodeError> {
     let node = match connect_to_node(rpc_port).await {
         Ok(node) => node,
@@ -336,7 +339,6 @@ async fn submit_to_node(
     println!("Connected to RPC node, submitting payload...");
 
     let (context, _anchor_slot) = create_refine_context(&node).await?;
-    // let anchor = context.anchor;
     println!("Created context for submission");
 
     let service_id = service_id.expect("Service ID is required to submit to RPC node");
@@ -345,45 +347,6 @@ async fn submit_to_node(
         std::process::exit(1);
     };
 
-    // let service = match node
-    //     .service_data(anchor, service_id)
-    //     .await?
-    //     .ok_or_else(|| println!("Service {service_id} not found at anchor {:?}", anchor))
-    // {
-    //     Ok(service) => service,
-    //     Err(_) => {
-    //         println!("⚠️  Service {service_id} not found at anchor {:?}", anchor);
-    //         std::process::exit(1);
-    //     }
-    // };
-
-    // let (null_authorizer_hash, auth_code_preimage_available) =
-    //     get_authorizer(&node, anchor).await?;
-
-    // let service_code_preimage_available = node
-    //     .service_preimage(anchor, service_id, service.code_hash.0)
-    //     .await?
-    //     .is_some();
-
-    // println!(
-    //     "Is authorizer available: {:?}",
-    //     auth_code_preimage_available
-    // );
-    // if !service_code_preimage_available || !auth_code_preimage_available {
-    //     println!(
-    //         "Preflight failed before submit: code preimage missing. service_preimage_available={}, authorizer_preimage_available={}\nservice={:08x}, service_code_hash={}, auth_code_host={:08x}, null_authorizer_hash={}, anchor={:?}\nHint: this commonly happens when targeting externally deployed services whose code preimage is not available to this node.",
-    //         service_code_preimage_available,
-    //         auth_code_preimage_available,
-    //         service_id,
-    //         hex::encode(service.code_hash.0),
-    //         BOOTSTRAP_SERVICE_ID,
-    //         hex::encode(null_authorizer_hash.0),
-    //         anchor
-    //     );
-    //     std::process::exit(1);
-    // }
-
-    // We create an empty extrinsics list here, for demonstration purposes only.
     let extrinsic_data = extrinsic_witness
         .as_ref()
         .map(|witness| witness.encode())
@@ -393,38 +356,7 @@ async fn submit_to_node(
         hash: extrinsic_hash,
         len: extrinsic_data.len() as u32,
     };
-    // let extrinsics = vec![extrinsic_specs]
-    //     .try_into()
-    //     .expect("We only have one extrinsic, so this should never fail");
     let extrinsic_bytes = vec![Bytes::copy_from_slice(&extrinsic_data)];
-
-
-    // // export_count must be at least as large as the number of segments we export during refinement,
-    // // or else we will have a StorageFull error.
-    // let item = WorkItem {
-    //     service: service_id,
-    //     code_hash: service.code_hash,
-    //     payload: payload.encode().into(),
-    //     refine_gas_limit: max_refine_gas(),
-    //     accumulate_gas_limit: max_accumulate_gas(),
-    //     import_segments: Default::default(),
-    //     extrinsics,
-    //     export_count,
-    // };
-    // println!("Created work item for submission without imports");
-
-    // let package = WorkPackage {
-    //     authorization: Authorization::new(),
-    //     auth_code_host: BOOTSTRAP_SERVICE_ID,
-    //     authorizer: Authorizer {
-    //         code_hash: null_authorizer_hash,
-    //         config: AuthConfig::new(),
-    //     },
-    //     context,
-    //     items: vec![item]
-    //         .try_into()
-    //         .expect("We only have one item, so this should never fail"),
-    // };
 
     let (encoded_package, package_hash) = create_package(
         service_id,
@@ -434,13 +366,10 @@ async fn submit_to_node(
         null_authorizer_hash,
         context,
         extrinsic_specs,
+        prev_wp_hash
     );
 
     println!("Created work package for submission");
-
-    // let encoded_package = package.encode();
-    // let package_hash: WorkPackageHash = hash_raw(&encoded_package).into();
-
     println!("Submitting work package");
     let max_core = val_count() / VALS_PER_CORE as CoreIndex;
     let mut core = DEFAULT_CORE;
@@ -528,6 +457,7 @@ fn create_package(
     authorizer_hash: CodeHash,
     context: RefineContext,
     extrinsic: ExtrinsicSpec,
+    import_from_package: Option<WorkPackageHash>,
 ) -> (Vec<u8>, WorkPackageHash) {
 
     let extrinsics = vec![extrinsic]
@@ -536,13 +466,20 @@ fn create_package(
 
     // export_count must be at least as large as the number of segments we export during refinement,
     // or else we will have a StorageFull error.
+
+    let import_segments = if let Some(prev_package_hash) = import_from_package {
+        vec![ImportSpec { root: RootIdentifier::Indirect(prev_package_hash), index: 0 }]
+    } else {
+        Default::default()
+    };
+
     let item = WorkItem {
         service: service_id,
         code_hash: service.code_hash,
         payload: payload.encode().into(),
         refine_gas_limit: max_refine_gas(),
         accumulate_gas_limit: max_accumulate_gas(),
-        import_segments: Default::default(),
+        import_segments: import_segments.try_into().expect("We only have one segment to import, so this should never fail"),
         extrinsics,
         export_count,
     };

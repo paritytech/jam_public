@@ -27,7 +27,7 @@ pub enum Operation {
         token_id: TokenId,
         amount: u64,
     },
-    Solicit(Solicit),
+    // Solicit(Solicit),
 }
 
 /// Solicit a preimage for the service.
@@ -103,18 +103,18 @@ impl Operation {
                 out.copy_from_slice(&hasher.finalize().as_bytes()[0..32]);
                 out
             }
-            Operation::Solicit(solicit) => {
-                let mut raw = [0u8; 72];
-                raw[0..32].copy_from_slice(&solicit.on_root);
-                raw[32..64].copy_from_slice(&solicit.hash);
-                raw[64..72].copy_from_slice(&solicit.len.to_le_bytes());
+            // Operation::Solicit(solicit) => {
+            //     let mut raw = [0u8; 72];
+            //     raw[0..32].copy_from_slice(&solicit.on_root);
+            //     raw[32..64].copy_from_slice(&solicit.hash);
+            //     raw[64..72].copy_from_slice(&solicit.len.to_le_bytes());
 
-                let mut hasher = Params::new().hash_length(32).to_state();
-                hasher.update(&raw);
-                let mut out = [0u8; 32];
-                out.copy_from_slice(&hasher.finalize().as_bytes()[0..32]);
-                out
-            }
+            //     let mut hasher = Params::new().hash_length(32).to_state();
+            //     hasher.update(&raw);
+            //     let mut out = [0u8; 32];
+            //     out.copy_from_slice(&hasher.finalize().as_bytes()[0..32]);
+            //     out
+            // }
         }
     }
 }

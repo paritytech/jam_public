@@ -13,7 +13,7 @@ pub mod merkle;
 
 mod transition;
 
-pub use transition::{Mode, Operations, StateOps, state_transition};
+pub use transition::{DeliveryMode, ExecutionMode, Operations, StateOps, state_transition, verify_operations};
 
 pub use token_ledger_common::Solicit;
 

@@ -32,34 +32,28 @@ impl Service for TokenLedgerExternalClient {
     fn refine(
         _core_index: CoreIndex,
         item_index: usize,
-        service_id: ServiceId,
+        _service_id: ServiceId,
         payload: WorkPayload,
         package_hash: WorkPackageHash,
     ) -> WorkOutput {
         info!(
-            "=== TokenLedger refine on service {service_id:x}h for package/item {package_hash} / {item_index} ==="
+            "=== [Refinement {package_hash}] TokenLedger refine for package/item {} / {item_index} ===", hex::encode(package_hash.as_slice())
         );
-        // full hash display
-        info!("Package hash {}", hex::encode(package_hash.as_slice()));
 
-        let (encoded, operations_len) = refinement::refine_payload(payload.0.as_slice());
+        let (encoded, operations_len) = refinement::refine_payload(payload.0.as_slice(), package_hash);
 
         let output: WorkOutput = encoded.into();
-        info!(
-            "=== Refinement done over {} operations, payload of size {} === ",
-            operations_len,
-            output.0.len()
-        );
+        info!("=== [Refinement {package_hash}] Refine output for {} operations: {:?} ===", operations_len, output);
         output
     }
 
-    fn accumulate(slot: Slot, service_id: ServiceId, item_count: usize) -> Option<Hash> {
+    fn accumulate(slot: Slot, _service_id: ServiceId, item_count: usize) -> Option<Hash> {
         info!(
-            "=== TokenLedger accumulate on service {service_id:x}h @{slot} with {item_count} items ==="
+            "=== [Accumulation slot: {slot}] TokenLedger accumulate with {item_count} items ==="
         );
 
         crate::accumulation::on_accumulate_items(accumulate::accumulate_items());
-        info!("=== TokenLedger accumulate finished ===");
+        info!("=== [Accumulation slot: {slot}] TokenLedger accumulate finished ===");
         None
     }
 }
