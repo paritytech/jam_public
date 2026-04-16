@@ -119,60 +119,6 @@ impl Operation {
     }
 }
 
-impl Operation {
-    /// Encode the operation as bytes for signing
-    pub fn signing_message(&self) -> Hash {
-        match self {
-            Operation::Mint {
-                to,
-                token_id,
-                amount,
-            } => {
-                let mut raw = [0u8; 72];
-                raw[0..32].copy_from_slice(to);
-                raw[32..36].copy_from_slice(&token_id.to_le_bytes());
-                raw[36..44].copy_from_slice(&amount.to_le_bytes());
-
-                let mut hasher = Params::new().hash_length(32).to_state();
-                hasher.update(&raw);
-                let mut out = [0u8; 32];
-                out.copy_from_slice(&hasher.finalize().as_bytes()[0..32]);
-                out
-            }
-            Operation::Transfer {
-                from,
-                to,
-                token_id,
-                amount,
-            } => {
-                let mut raw = [0u8; 80];
-                raw[0..32].copy_from_slice(from);
-                raw[32..64].copy_from_slice(to);
-                raw[64..68].copy_from_slice(&token_id.to_le_bytes());
-                raw[68..76].copy_from_slice(&amount.to_le_bytes());
-
-                let mut hasher = Params::new().hash_length(32).to_state();
-                hasher.update(&raw);
-                let mut out = [0u8; 32];
-                out.copy_from_slice(&hasher.finalize().as_bytes()[0..32]);
-                out
-            }
-            Operation::Solicit(solicit) => {
-                let mut raw = [0u8; 72];
-                raw[0..32].copy_from_slice(&solicit.on_root);
-                raw[32..64].copy_from_slice(&solicit.hash);
-                raw[64..72].copy_from_slice(&solicit.len.to_le_bytes());
-
-                let mut hasher = Params::new().hash_length(32).to_state();
-                hasher.update(&raw);
-                let mut out = [0u8; 32];
-                out.copy_from_slice(&hasher.finalize().as_bytes()[0..32]);
-                out
-            }
-        }
-    }
-}
-
 // Orders a transaction between two parties, so that for both possible directions of transfer,
 // we always have the same party first, independently from being the sender or the recipient.
 // This allows to keep track of the net balance between two parties over several transfers
