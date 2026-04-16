@@ -10,7 +10,7 @@ Note: This tutorial is not production-ready. It serves only as an illustration o
 
 The general design is for educational purpose, managing tokens over JAM mainnet is not a proper design, we will try to do something better in next tutorial part.
 
-This tutorial source code can be found in "services_tutorial/token-ledger-v1" and "services_tutorial/token-ledger-common" crates. A utility justfile script can be use to test it under "services_tutorial/scripts/jst", use it with [just](https://github.com/casey/just) command (binaries used in introduction are expected to be in executable PATH).
+This tutorial source code can be found in "services_tutorial/token-ledger-service-v1" and "services_tutorial/token-ledger-common" crates. A utility justfile script can be use to test it under "services_tutorial/scripts/jst", use it with [just](https://github.com/casey/just) command (binaries used in introduction are expected to be in executable PATH).
 
 
 ## Overview

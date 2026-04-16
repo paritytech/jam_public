@@ -2,13 +2,14 @@
 
 extern crate alloc;
 
+// An auxiliary module for handling JSON-encoded data.
 pub mod json;
 
 // using consensus to avoid importing jam-std-common (quite heay import TODO feature gate it a
 // bit?).
+use blake2b_simd::Params;
 pub use ed25519_consensus::{VerificationKey, VerificationKeyBytes};
-
-// An auxiliary module for handling JSON-encoded data.
+use jam_types::Hash;
 
 use codec::{Decode, Encode};
 
@@ -33,8 +34,8 @@ pub enum Operation {
 /// Is expected to be applied on a given state root.
 #[derive(Clone, Debug, Encode, Decode)]
 pub struct Solicit {
-    pub on_root: [u8; 32],
-    pub hash: [u8; 32],
+    pub on_root: Hash,
+    pub hash: Hash,
     pub len: u64,
 }
 
@@ -56,6 +57,60 @@ pub fn verify_signature(
     let message = op.encode();
     key.verify(&signature.0, &message)
         .map_err(|_| "Signature verification failed")
+}
+
+impl Operation {
+    /// Encode the operation as bytes for signing
+    pub fn signing_message(&self) -> Hash {
+        match self {
+            Operation::Mint {
+                to,
+                token_id,
+                amount,
+            } => {
+                let mut raw = [0u8; 72];
+                raw[0..32].copy_from_slice(to);
+                raw[32..36].copy_from_slice(&token_id.to_le_bytes());
+                raw[36..44].copy_from_slice(&amount.to_le_bytes());
+
+                let mut hasher = Params::new().hash_length(32).to_state();
+                hasher.update(&raw);
+                let mut out = [0u8; 32];
+                out.copy_from_slice(&hasher.finalize().as_bytes()[0..32]);
+                out
+            }
+            Operation::Transfer {
+                from,
+                to,
+                token_id,
+                amount,
+            } => {
+                let mut raw = [0u8; 80];
+                raw[0..32].copy_from_slice(from);
+                raw[32..64].copy_from_slice(to);
+                raw[64..68].copy_from_slice(&token_id.to_le_bytes());
+                raw[68..76].copy_from_slice(&amount.to_le_bytes());
+
+                let mut hasher = Params::new().hash_length(32).to_state();
+                hasher.update(&raw);
+                let mut out = [0u8; 32];
+                out.copy_from_slice(&hasher.finalize().as_bytes()[0..32]);
+                out
+            }
+            Operation::Solicit(solicit) => {
+                let mut raw = [0u8; 72];
+                raw[0..32].copy_from_slice(&solicit.on_root);
+                raw[32..64].copy_from_slice(&solicit.hash);
+                raw[64..72].copy_from_slice(&solicit.len.to_le_bytes());
+
+                let mut hasher = Params::new().hash_length(32).to_state();
+                hasher.update(&raw);
+                let mut out = [0u8; 32];
+                out.copy_from_slice(&hasher.finalize().as_bytes()[0..32]);
+                out
+            }
+        }
+    }
 }
 
 // Orders a transaction between two parties, so that for both possible directions of transfer,
