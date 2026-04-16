@@ -6,12 +6,14 @@ use clap::{arg, command, value_parser};
 use codec::Encode;
 use std::path::Path;
 
+use bytes::Bytes;
+use jam_std_common::Service;
 use jam_std_common::{Node, NodeError, NodeExt, hash_raw};
 use jam_tooling::CommonArgs;
 use jam_types::{
     AuthConfig, Authorization, Authorizer, CodeHash, CoreIndex, ExtrinsicSpec, HeaderHash,
-    ImportSpec, RootIdentifier, RefineContext, Slot, VALS_PER_CORE, ValIndex, WorkItem, WorkPackage, WorkPackageHash,
-    max_accumulate_gas, max_refine_gas, val_count,
+    ImportSpec, RefineContext, RootIdentifier, Slot, VALS_PER_CORE, ValIndex, WorkItem,
+    WorkPackage, WorkPackageHash, max_accumulate_gas, max_refine_gas, val_count,
 };
 use jsonrpsee::ws_client::WsClient;
 use std::env;
@@ -19,13 +21,10 @@ use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 use token_ledger_builder_v2::state::State;
-use token_ledger_common::{SignedOperation};
+use token_ledger_common::SignedOperation;
 use token_ledger_service_v2::RefinePayload;
-use token_ledger_state_v2::{Hash, merkle::Witness, state_transition};
 use token_ledger_state_v2::{DeliveryMode, ExecutionMode};
-use bytes::Bytes;
-use jam_std_common::{Service};
-
+use token_ledger_state_v2::{Hash, merkle::Witness, state_transition};
 
 const BASE_NODE_PORT: u16 = 19800;
 const DEFAULT_NODE_INDEX: ValIndex = 0;
@@ -165,115 +164,141 @@ fn main() {
     let db_path = std::path::PathBuf::new();
     let witness = compute_transition_witness(&db_path, override_head, &operations);
 
-    let delivery = 
-        if extrinsic_mode {
-            dbg!("Submitting in extrinsic mode");
-            DeliveryMode::Extrinsic
-        } else {
-            dbg!("Submitting in direct mode");
-            DeliveryMode::Direct
-        };
+    let delivery = if extrinsic_mode {
+        dbg!("Submitting in extrinsic mode");
+        DeliveryMode::Extrinsic
+    } else {
+        dbg!("Submitting in direct mode");
+        DeliveryMode::Direct
+    };
 
-    let connection_details = connect_rpc.then(
-            || ConnectionDetails { rpc_port: rpc_port.expect("Must be defined if connect_rpc is true"), service_id: opt_service.expect("Must be defined if connect_rpc is true")});
+    let connection_details = connect_rpc.then(|| ConnectionDetails {
+        rpc_port: rpc_port.expect("Must be defined if connect_rpc is true"),
+        service_id: opt_service.expect("Must be defined if connect_rpc is true"),
+    });
 
     if !with_segments {
         dbg!("Submitting package with Immediate execution");
         let (payload, extrinsics) = match delivery {
             DeliveryMode::Extrinsic => {
-                println!("Submitting in extrinsic mode, witness will be sent as extrinsic data in the first package");
-                (RefinePayload {
-                    delivery,
-                    execution: ExecutionMode::Immediate,
-                    operations: operations.clone(),
-                    witness: None,
-                }, Some(witness))
+                println!(
+                    "Submitting in extrinsic mode, witness will be sent as extrinsic data in the first package"
+                );
+                (
+                    RefinePayload {
+                        delivery,
+                        execution: ExecutionMode::Immediate,
+                        operations: operations.clone(),
+                        witness: None,
+                    },
+                    Some(witness),
+                )
             }
             DeliveryMode::Direct => {
-                println!("Submitting in direct mode, witness will be included in WorkItem payload of the first package");
-                (RefinePayload {
-                    delivery,
-                    execution: ExecutionMode::Immediate,
-                    operations: operations.clone(),
-                    witness: Some(witness.clone()),
-                }, None)
+                println!(
+                    "Submitting in direct mode, witness will be included in WorkItem payload of the first package"
+                );
+                (
+                    RefinePayload {
+                        delivery,
+                        execution: ExecutionMode::Immediate,
+                        operations: operations.clone(),
+                        witness: Some(witness.clone()),
+                    },
+                    None,
+                )
             }
         };
 
         if let Some(conn) = connection_details {
-            let package_hash = create_and_submit_package(output_path, &payload, extrinsics, 0, conn, None);
+            let package_hash =
+                create_and_submit_package(output_path, &payload, extrinsics, 0, conn, None);
         }
-    } else {    
+    } else {
         dbg!("Submitting two packages with segments, with Deferring and Deferred execution");
 
         let (first_payload, extrinsics) = match delivery {
             DeliveryMode::Extrinsic => {
-                println!("Submitting in extrinsic mode, witness will be sent as extrinsic data in the first package");
-                (RefinePayload {
-                    delivery,
-                    execution: ExecutionMode::Deferring,
-                    operations: operations.clone(),
-                    witness: None,
-                }, Some(witness))
+                println!(
+                    "Submitting in extrinsic mode, witness will be sent as extrinsic data in the first package"
+                );
+                (
+                    RefinePayload {
+                        delivery,
+                        execution: ExecutionMode::Deferring,
+                        operations: operations.clone(),
+                        witness: None,
+                    },
+                    Some(witness),
+                )
             }
             DeliveryMode::Direct => {
-                println!("Submitting in direct mode, witness will be included in WorkItem payload of the first package");
-                (RefinePayload {
-                    delivery,
-                    execution: ExecutionMode::Deferring,
-                    operations: operations.clone(),
-                    witness: Some(witness.clone()),
-                }, None)
+                println!(
+                    "Submitting in direct mode, witness will be included in WorkItem payload of the first package"
+                );
+                (
+                    RefinePayload {
+                        delivery,
+                        execution: ExecutionMode::Deferring,
+                        operations: operations.clone(),
+                        witness: Some(witness.clone()),
+                    },
+                    None,
+                )
             }
         };
 
-        let second_payload = RefinePayload{
+        let second_payload = RefinePayload {
             delivery: DeliveryMode::Direct,
             execution: ExecutionMode::Deferred,
             witness: None,
-             // In real code, we should read the verified data stored by Deferring execution and include it in the payload of Deferred execution, for tutorial we just put the same operations and witness for simplicity.
-            operations: Vec::new(), // we do not need to include operations in the second package as they are already included in the first package, but for simplicity we include them again.  
+            // In real code, we should read the verified data stored by Deferring execution and include it in the payload of Deferred execution, for tutorial we just put the same operations and witness for simplicity.
+            operations: Vec::new(), // we do not need to include operations in the second package as they are already included in the first package, but for simplicity we include them again.
         };
 
         if let Some(conn) = connection_details {
-            let first_package_hash = create_and_submit_package(output_path, &first_payload, extrinsics, 1, conn, None);
-            let _ = create_and_submit_package(output_path, &second_payload, None, 0, conn, Some(first_package_hash));
+            let first_package_hash =
+                create_and_submit_package(output_path, &first_payload, extrinsics, 1, conn, None);
+            let _ = create_and_submit_package(
+                output_path,
+                &second_payload,
+                None,
+                0,
+                conn,
+                Some(first_package_hash),
+            );
         }
-
     }
 }
 
 pub fn export_payload(output_path: Option<&PathBuf>, payload: &RefinePayload) {
-
     if let Some(output_path) = output_path {
         println!("Output: {}", output_path.display());
-        
+
         // Create the output file. In direct and extrinsic mode, this is the end result.
         // In preimage mode, we use this to compute a hash, and then
         // include it as the corresponding pre-image to a Solicit operation.
-        
-        let _output = export_direct_payload(output_path, &payload);        
+
+        let _output = export_direct_payload(output_path, &payload);
     } else {
         println!("No output file specified, skipping writing payload to file");
     }
-        
 }
-        
+
 #[derive(Copy, Clone)]
 pub struct ConnectionDetails {
     rpc_port: u16,
     service_id: u32,
 }
 
-
 pub fn create_and_submit_package(
-        output_path: Option<&PathBuf>, 
-        payload: &RefinePayload, 
-        extrinsic: Option<Witness>,
-        export_count: u16,
-        conn: ConnectionDetails, 
-        prev_wp_hash: Option<WorkPackageHash>
-    ) -> WorkPackageHash {
+    output_path: Option<&PathBuf>,
+    payload: &RefinePayload,
+    extrinsic: Option<Witness>,
+    export_count: u16,
+    conn: ConnectionDetails,
+    prev_wp_hash: Option<WorkPackageHash>,
+) -> WorkPackageHash {
     export_payload(output_path, &payload);
 
     let rt = match tokio::runtime::Runtime::new() {
@@ -287,9 +312,19 @@ pub fn create_and_submit_package(
     let rpc_port = conn.rpc_port;
     println!("Submitting to RPC node at port {rpc_port}...");
 
-    match rt.block_on(submit_to_node(rpc_port, Some(conn.service_id), &payload, extrinsic, export_count, prev_wp_hash)) {
+    match rt.block_on(submit_to_node(
+        rpc_port,
+        Some(conn.service_id),
+        &payload,
+        extrinsic,
+        export_count,
+        prev_wp_hash,
+    )) {
         Ok(package_hash) => {
-            println!("✅ RPC submission successful: {package_hash} - payload execution type: {:?}", payload.execution);
+            println!(
+                "✅ RPC submission successful: {package_hash} - payload execution type: {:?}",
+                payload.execution
+            );
             package_hash
         }
         Err(error) => {
@@ -343,7 +378,9 @@ async fn submit_to_node(
 
     let service_id = service_id.expect("Service ID is required to submit to RPC node");
 
-    let Ok((service, null_authorizer_hash)) = get_service_data(&node, service_id, context.anchor).await else {
+    let Ok((service, null_authorizer_hash)) =
+        get_service_data(&node, service_id, context.anchor).await
+    else {
         std::process::exit(1);
     };
 
@@ -366,7 +403,7 @@ async fn submit_to_node(
         null_authorizer_hash,
         context,
         extrinsic_specs,
-        prev_wp_hash
+        prev_wp_hash,
     );
 
     println!("Created work package for submission");
@@ -407,7 +444,11 @@ async fn submit_to_node(
     Ok(package_hash)
 }
 
-async fn get_service_data(node: &WsClient, service_id: u32, anchor: HeaderHash) -> Result<(Service, CodeHash), NodeError> {
+async fn get_service_data(
+    node: &WsClient,
+    service_id: u32,
+    anchor: HeaderHash,
+) -> Result<(Service, CodeHash), NodeError> {
     let service = match node
         .service_data(anchor, service_id)
         .await?
@@ -443,7 +484,9 @@ async fn get_service_data(node: &WsClient, service_id: u32, anchor: HeaderHash) 
             hex::encode(null_authorizer_hash.0),
             anchor
         );
-        Err(NodeError::Other("Required preimages not available".to_string()))
+        Err(NodeError::Other(
+            "Required preimages not available".to_string(),
+        ))
     } else {
         Ok((service, null_authorizer_hash))
     }
@@ -459,7 +502,6 @@ fn create_package(
     extrinsic: ExtrinsicSpec,
     import_from_package: Option<WorkPackageHash>,
 ) -> (Vec<u8>, WorkPackageHash) {
-
     let extrinsics = vec![extrinsic]
         .try_into()
         .expect("We only have one extrinsic, so this should never fail");
@@ -468,7 +510,10 @@ fn create_package(
     // or else we will have a StorageFull error.
 
     let import_segments = if let Some(prev_package_hash) = import_from_package {
-        vec![ImportSpec { root: RootIdentifier::Indirect(prev_package_hash), index: 0 }]
+        vec![ImportSpec {
+            root: RootIdentifier::Indirect(prev_package_hash),
+            index: 0,
+        }]
     } else {
         Default::default()
     };
@@ -479,7 +524,9 @@ fn create_package(
         payload: payload.encode().into(),
         refine_gas_limit: max_refine_gas(),
         accumulate_gas_limit: max_accumulate_gas(),
-        import_segments: import_segments.try_into().expect("We only have one segment to import, so this should never fail"),
+        import_segments: import_segments
+            .try_into()
+            .expect("We only have one segment to import, so this should never fail"),
         extrinsics,
         export_count,
     };
@@ -561,7 +608,6 @@ fn export_direct_payload(output_path: &PathBuf, refine_payload: &RefinePayload) 
     refine_payload.encode_to(&mut output);
     output
 }
-
 
 fn read_ops_from_file(path: &PathBuf) -> Vec<token_ledger_common::SignedOperation> {
     let mut input = std::fs::File::open(path).unwrap();

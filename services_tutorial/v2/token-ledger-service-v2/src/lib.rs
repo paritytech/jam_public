@@ -37,20 +37,23 @@ impl Service for TokenLedgerExternalClient {
         package_hash: WorkPackageHash,
     ) -> WorkOutput {
         info!(
-            "=== [Refinement {package_hash}] TokenLedger refine for package/item {} / {item_index} ===", hex::encode(package_hash.as_slice())
+            "=== [Refinement {package_hash}] TokenLedger refine for package/item {} / {item_index} ===",
+            hex::encode(package_hash.as_slice())
         );
 
-        let (encoded, operations_len) = refinement::refine_payload(payload.0.as_slice(), package_hash);
+        let (encoded, operations_len) =
+            refinement::refine_payload(payload.0.as_slice(), package_hash);
 
         let output: WorkOutput = encoded.into();
-        info!("=== [Refinement {package_hash}] Refine output for {} operations: {:?} ===", operations_len, output);
+        info!(
+            "=== [Refinement {package_hash}] Refine output for {} operations: {:?} ===",
+            operations_len, output
+        );
         output
     }
 
     fn accumulate(slot: Slot, _service_id: ServiceId, item_count: usize) -> Option<Hash> {
-        info!(
-            "=== [Accumulation slot: {slot}] TokenLedger accumulate with {item_count} items ==="
-        );
+        info!("=== [Accumulation slot: {slot}] TokenLedger accumulate with {item_count} items ===");
 
         crate::accumulation::on_accumulate_items(accumulate::accumulate_items());
         info!("=== [Accumulation slot: {slot}] TokenLedger accumulate finished ===");

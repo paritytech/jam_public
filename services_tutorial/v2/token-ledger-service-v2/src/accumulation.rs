@@ -6,9 +6,9 @@ use codec::{Decode, Encode};
 use jam_pvm_common::accumulate::{get, set};
 use jam_pvm_common::{error, info, warn};
 use jam_types::AccumulateItem;
-use jam_types::{WorkPackageHash, WorkItemRecord};
-use token_ledger_state_v2::Hash;
+use jam_types::{WorkItemRecord, WorkPackageHash};
 use token_ledger_state_v2::DeliveryMode;
+use token_ledger_state_v2::Hash;
 // use token_ledger_state_v2::Solicit;
 
 #[derive(Clone, Debug, Encode, Decode)]
@@ -39,8 +39,12 @@ pub fn on_accumulate_items(items: Vec<AccumulateItem>) {
                 if let None = package_hash {
                     package_hash = Some(r.package);
                 }
-                on_work_item_record(r, &mut items_result, package_hash.clone().unwrap_or_default());
-            },
+                on_work_item_record(
+                    r,
+                    &mut items_result,
+                    package_hash.clone().unwrap_or_default(),
+                );
+            }
             AccumulateItem::Transfer(_) => {
                 info!("[Accumulation (---)] Transfer not used in this example");
                 continue;
@@ -61,7 +65,9 @@ pub fn on_accumulate_items(items: Vec<AccumulateItem>) {
                     hex::encode(new_root)
                 );
             } else {
-                info!("[Accumulation {package_hash}] External client state unchanged. Skipping root update." );
+                info!(
+                    "[Accumulation {package_hash}] External client state unchanged. Skipping root update."
+                );
             }
         }
         Ok(None) => {
@@ -73,13 +79,19 @@ pub fn on_accumulate_items(items: Vec<AccumulateItem>) {
     }
 }
 
-fn on_work_item_record(record: WorkItemRecord, acc: &mut PendingAccumulateResult, package_hash: WorkPackageHash) {
-
+fn on_work_item_record(
+    record: WorkItemRecord,
+    acc: &mut PendingAccumulateResult,
+    package_hash: WorkPackageHash,
+) {
     let output = match &record.result {
         Ok(output) => {
-            info!("[Accumulation {package_hash}] Work item record successful: output {:?}", output.0);
+            info!(
+                "[Accumulation {package_hash}] Work item record successful: output {:?}",
+                output.0
+            );
             output
-        },
+        }
         Err(e) => {
             warn!("[Accumulation {package_hash}]: Work item failed: {:?}", e);
             return;
@@ -87,7 +99,10 @@ fn on_work_item_record(record: WorkItemRecord, acc: &mut PendingAccumulateResult
     };
 
     let Ok(op) = Operation::decode(&mut &output[..]) else {
-        warn!("[Accumulation {package_hash}]: Failed to decode record output as Operation: {:?}", output);
+        warn!(
+            "[Accumulation {package_hash}]: Failed to decode record output as Operation: {:?}",
+            output
+        );
         return;
     };
 

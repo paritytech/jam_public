@@ -12,7 +12,7 @@ use token_ledger_common::{
     canonical_transfer, verify_signature,
 };
 
-/// This is used to exemplify different means of passing data to the service. 
+/// This is used to exemplify different means of passing data to the service.
 /// The use-case is artificial, but try to cover all the access points we might want to use in a real implementation.
 #[derive(Clone, Copy, Debug, Encode, Decode, PartialEq, Eq)]
 pub enum DeliveryMode {
@@ -49,7 +49,7 @@ pub trait StateOps {
 }
 
 /// Verifies if the operations are correctly signed and intrinsically correct.
-/// This does not check if they're valid in the current state of the chain, 
+/// This does not check if they're valid in the current state of the chain,
 /// as that can only be done in accumulation, only if their parameters make sense
 /// for a valid operation (e.g. transferring a positive value to a different account).
 pub fn verify_operations(operations: &Operations) -> bool {
@@ -60,7 +60,11 @@ pub fn verify_operations(operations: &Operations) -> bool {
         } = op;
 
         match operation {
-            Operation::Mint { to: _, token_id: _, amount } => {
+            Operation::Mint {
+                to: _,
+                token_id: _,
+                amount,
+            } => {
                 let admin_key: VerificationKey =
                     VerificationKey::try_from(token_ledger_common::admin())
                         .expect("Hard-coded Admin key");
@@ -74,7 +78,12 @@ pub fn verify_operations(operations: &Operations) -> bool {
                     return false;
                 }
             }
-            Operation::Transfer { from, to, token_id: _, amount } => {
+            Operation::Transfer {
+                from,
+                to,
+                token_id: _,
+                amount,
+            } => {
                 let Ok(signer_key) = VerificationKey::try_from(*from) else {
                     warn!("Invalid 'from' account in transfer operation: {:?}", from);
                     return false;
@@ -100,10 +109,7 @@ pub fn verify_operations(operations: &Operations) -> bool {
 /// This function progresses a state with the results of the operations.
 /// The state received might not correspond actually to the current state of the chain,
 /// but that cannot be known at refinement time and is the responsibility of the accumulation to check.
-pub fn state_transition<S: StateOps>(
-    state: &mut S,
-    operations: &Operations,
-) {
+pub fn state_transition<S: StateOps>(state: &mut S, operations: &Operations) {
     info!("[Refinement] Processing external client state transition.");
 
     let mut staged_transfers: BTreeMap<(TokenId, Counterparts), i64> = BTreeMap::new();
@@ -119,9 +125,7 @@ pub fn state_transition<S: StateOps>(
                 amount,
                 to,
                 token_id,
-            } => {
-                process_mint(state, *to, *token_id, *amount)
-            }
+            } => process_mint(state, *to, *token_id, *amount),
             Operation::Transfer {
                 from,
                 to,
@@ -160,7 +164,8 @@ fn process_mint<S: StateOps>(state: &mut S, to: AccountId, token_id: TokenId, am
     let new_bal = current_bal.saturating_add(amount);
     state.set_balance(to, token_id, new_bal);
 
-    info!("[Refinement] Minted {} of token {} to controller account {:?}. New balance: {}",
+    info!(
+        "[Refinement] Minted {} of token {} to controller account {:?}. New balance: {}",
         amount,
         token_id,
         hex::encode(to),
@@ -176,7 +181,10 @@ fn process_transfer<S: StateOps>(
     amount: u64,
 ) {
     if !state.known_tokens_contains(token_id) {
-        warn!("[Refinement] Trying to transfer unknown token: {}", token_id);
+        warn!(
+            "[Refinement] Trying to transfer unknown token: {}",
+            token_id
+        );
         return;
     }
 
