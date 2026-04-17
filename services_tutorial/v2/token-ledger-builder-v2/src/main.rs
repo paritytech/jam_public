@@ -211,8 +211,7 @@ fn main() {
         };
 
         if let Some(conn) = connection_details {
-            let _ =
-                create_and_submit_package(output_path, &payload, extrinsics, 0, conn, None);
+            let _ = create_and_submit_package(output_path, &payload, extrinsics, 0, conn, None);
         }
     } else {
         dbg!("Submitting two packages with segments, with Deferring and Deferred execution");
@@ -396,7 +395,11 @@ async fn submit_to_node(
     let extrinsic_bytes = vec![Bytes::copy_from_slice(&extrinsic_data)];
 
     let (encoded_package, package_hash) = create_package(
-        ServiceData { service_id, service, authorizer_hash: null_authorizer_hash },
+        ServiceData {
+            service_id,
+            service,
+            authorizer_hash: null_authorizer_hash,
+        },
         payload,
         export_count,
         context,
@@ -459,8 +462,7 @@ async fn get_service_data(
         }
     };
 
-    let (null_authorizer_hash, auth_code_preimage_available) =
-        get_authorizer(node, anchor).await?;
+    let (null_authorizer_hash, auth_code_preimage_available) = get_authorizer(node, anchor).await?;
 
     let service_code_preimage_available = node
         .service_preimage(anchor, service_id, service.code_hash.0)
