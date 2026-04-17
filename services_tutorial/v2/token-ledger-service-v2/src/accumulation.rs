@@ -1,6 +1,5 @@
 //! accumulation
 
-// use alloc::collections::btree_map::BTreeMap;
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use jam_pvm_common::accumulate::{get, set};
