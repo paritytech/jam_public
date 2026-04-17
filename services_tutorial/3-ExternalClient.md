@@ -67,22 +67,61 @@ Full state serializing is done after each state transition (usually done by the 
 Full state deserializing is done on each command call.
 
 
-## Payload Delivery Modes
-(TODO: review whether this is accurate at the moment. We may not have implemented all the options, and we may be able to deliver the payload via extrinsic as well)
+## Payload options
 
-Submission mechanism and payload delivery are different concerns:
-- submission mechanism: how the request reaches the service (for this tutorial, via submitted Work Items, either through Jamt in the command line, or via a WorkPackage sent to an RPC node);
-- payload delivery mode: where refinement reads the transition payload from (directly in the Work Item, via preimage, or via segments).
+The main purpose of this tutorial is to illustrate different techniques when developing services, in detriment of having a well-reasoned use case. Consequently, this tutorial exemplifies some payload options along distinct dimensions.
 
-The 'direct' mode is the simplest option: a single Work Item carries both operations and witness data. 
-The 'extrinsic' mode splits this by passing the operations in the payload, and the witness as an extrinsic.
+### Submission mechanism
+This is how the service request reaches the service. The installments in this tutorial and the accompanying code show how to send a basic Work Item via `Jamt` in the Command line, and how to send a Work-Package (which can have several Work Items) programmatically. This involves the creation of a Builder application, which can connect to a Polkajam Node and send a Work-Package via its RPC interface.
 
+### Delivery mode
 
-Refinement executes immediately from that payload, possibly with several operations, and processing is done in a single refinement call. The outcome of each work item, indicating the corresponding state transition, is passed to accumulation, which only updates the root state once if all the intermediate transitions follow in a logical sequence and start at the current state root. 
+The instructions for the service operation are normally passed in the Work Item's `payload` field. But a Work Item can also receive data through associated extrinsics, and even have access to the Data-Lake or Pre-images.
 
-JAM persistence is therefore only:
-- a key value for the current state root
-- work items shared in the datalake.
+In this tutorial, the data is divided into a list of Operations (with their state transitions), and a Witness to ensure that these are consistent with the chain's current state. 
+
+The tutorial demonstrates passing data through in extrinsics by adding a Delivery Mode with two options:
+
+- `Direct`: both the Operations and the Witness are passed through the Work Item's payload
+- `Extrinsic`: the operations are passed in the payload, and the witness as an extrinsic
+
+We also demonstrate one way to pass data via the D3L segments, that will be described in the next subsection. 
+
+### Execution mode
+
+In the simplest case, the execution of a service's logic invocation is done within the scope of a single Work Item. That is, the Work Item is self-sufficient and has all the data needed for the completion of one operation from beginning to end. But a Work Item (and in general a Work Package) may depend on data produced by other Work Packages, and require data exported by them. We illustrate this in a very simple scenario by creating sets of two paired Work Packages where the first one exports data for the second one to execute.
+We stress this is an artificial use-case, merely for the illustration of this sort of dependency and essentially splits the work normally done in a single call across two Work-Package. 
+
+In the accompanying code, the payload is characterized by an execution mode. This can have three settings, that cover the cases we introduced above:
+
+- `Immediate`: the Work Item is fully self-sufficient, and the service logic can be executed immediately. The necessary data is all extracted from the payload or the extrinsics, the refinement logic is executed to check the operations are valid and pass a summary of their execution to accumulation. Finally, the accumulation logic takes this summary and updates the chain state. 
+- `Deferring` and `Deferred`: these two variants cover the scenario of paired Work-Packages, and split the responsibility of the Immediate case between them. 
+     - `Deferring`: The first Work-Package is created with the `Deferring` mode. It extracts the data and validates the result, but instead of passing the summary to accumulation, it exports the operation and the witness into a D3L segment.
+     - `Deferred`: The second Work-Package is created with the `Deferred` mode, and its aim is to complete the execution. Its WorkItem has an empty payload, as everything it needs is already in the D3L. So it imports the segment from the D3L, extracts the Witness and the data, and basically continues the full process (that can be seen in an `Immediate` package) where it was interrupted in the `Deferring` step.
+
+### Handling D3L Segments
+
+A package can read D3L data by invoking the `refine::import` method, and passing a single index. This allows it to specify which segment it wants to load (a package can import at most 3072 segments). However, D3L segments are not identified by a simple index. Segments are identified by a pair of values: a Root Identifier and an index into the list of segments associated to that identifier. The Root Identifier can be of two kinds: a segment-root, corresponding to the root hash of a Merkle-Tree of all the segments exported in a Work-Package, or the WorkPackageHash itself.
+
+In order to map the `index` passed to `refine::import` into a full segment identifier, a WorkItem that is looking to import segments must have a non-empty list in its `import_segments` field. This is a list of `ImportSpec`s that encode the full segment identifier.
+
+Exporting a segment is easier, and requires only calling the appropriate method `refine::export` or `refine::export_slice`, keeping in mind that the number of such invocations can not go over the WorkItem's limit in field `export_count`, or else this will return an error of `ApiResult::StorageFull`.
+
+Segments may be useful in scenarios with large computation requirements, for example, to implement a MapReduce problem solution. WorkItems can be used to implement the parallel processing and exporting their (partial) results to D3L segments. Once this phase is finished, a second-layer operation can reduce these intermediate datasets to the final result.
+
+In this example, the data we export is small, and should always fit in a single Segment, so the code does not include any error checking. In practice, segments have a fixed size and developers should ensure the data is split by how many segments are needed. Each segment has exactly 4,104 bytes. Coupled with the maximum number of segments, a service can receive a maximum of 12,607,488 bytes in segments.
+
+### Sidenotes on design
+
+This is largely a demo, and so the design was sacrificed in several ways:
+
+- we create packages with segments in a very controlled way, and so we only have to keep track of a single package for definition of the `ImportSpec` and export only one segment at a time. In a broader scenario, we might need to export several of these, and keep track of all the exported segments before advancing to a summary step before accumulation (keep in mind exports can not be imported in accumulation). 
+
+- delayed transaction: this example merely breaks down the execution of a transaction into two different parts, and artificially delays it. A more realistic case will delay execution only until some point where some necessary work has been done. A classic example is sorting of large data sets that have to be partitioned into smaller bits than can be effectively handled, and then combined. 
+
+- data copying: the example here stores in a segment a copy of the data it received. The only advantage is that it advances some of the work (validation) in the first phase, which can be avoided in the second phase. In a more realistic scenario, we should also attempt to save on the data is stored (that is, exported) for the second phase. Exported data should, as much as possible, be transformed data, and where possible smaller than the original input, with just the information needed for the next step.
+
+Despite the above criticisms, the model proposed in this tutorial can be viewed as the basic building blocks to creating more complex designs to solve real complex problems.
 
 ## Building and testing
 
@@ -150,6 +189,10 @@ just create-service <service.jam>
 ```
 cargo run -- --connect-rpc --service 94560b8f <signed_ops.json>
 ```
+
+### Specifying different payload modes
+
+When using the builder to connect to an RPC node and submit the Work Package, you can pass in the `--extrinsic` option to specify the `Extrinsic` delivery mode, and you can pass the `--segment` option to have the builder produce two packages in the `Deferring / Deferred` mode.
 
 ## Debugging
 
@@ -295,10 +338,9 @@ For example, for the above code, we can find the trap occurred in the following 
 
 Debugging the PVM code is complex and way beyond the scope of this tutorial. If you need to debug at this level, be prepared to invest some time in understanding the PVM and the various outputs.
 
-# Other modes of operation
+# (Future work))
 
-TODO: review these modes of operation, check if we really need pre-images. 
-Show how to pass data in an extrinsic instead of the payload
+Work Items can also make use of pre-images in refinement. However, the tutorial still does not support such a use case.
 
 ## Using a preimage 
 
@@ -335,87 +377,3 @@ Accumulation see this item and call `solicite` host function to allow the given 
 Now, we can provide the workimage to jam (just provide command with `refinement_payload` as parameter).
 
 Next we will submit again the workitem `refinement_payload.prepare`, this time (if preimage had time to propagate), the refinement will find the preimage, decode it, obtain witness and operations and then do the same process as in previous example.
-
-## Exporting segment 
-
-
-This time we will demonstrate storing payload in a segment. The usecase is to delay processing of state transition, but is also largelly artificial, yet using segment to store service data seems a lot more sound than primage.
-
-Code is run when `Mode` enum is set to `Preimage`.
-
-
-Segments allows use use the witness and operations in later processing without having to attach them against.
-
-It make a lot of sense in large transformation, eg data mining things over multiple workitem (map), export results in segments and finally reduce these segments.
-
-In our case we cannot really map in parallel because then reduce operation can fail and make things rather impractical, so for the demo we only allow sequential state transitions.
-
-Segments are mainly using two api here:
-- refinement export: the segment is created and shared, workitem number of exported segment declaration must match 
-- refinement import: the segment is read during refinement, the segment definition is attached to workitem and import will just use an index into these declaration.
-
-
-## Steps
-
-
-#### exporting segments
-
-
-A workitem witness will record state transition in the same way as in our "direct" example and produce a similar payload.
-
-Refinement will just export the payload in a segment.
-
-Refinement run as in `Direct` example: validate all operations, but instead of sending directly the result to accumulation, it will store the payload in a segment by using the `export` host function.
-
-Just using `export` will fail into an `ApiResult::StorageFull` error.
-
-The number of Export must be strictly define in workitem `export_count` description.
-Therefore builder should update this value.
-
-In attached code we build payload as before with an additional `--segment` parameter.  
-
-Note that if we use a larger number of exports (eg 3 to get margin), then accumulate will also fail with a `BadExports` error.
-So we use number of exports 1 here.
-
-Also note that segment size is fix. Here we assume the payload will fit in a single segment. In real world design, one will allow to fill the segment with data to reduce cost.
-
-On the client side, we must track these exported segments.
-Here for testing I just use the exported segment number and workpackage hash from the log.
-
-Following accumulation is will track exported segment by hash in a single service storage value. This tracking allows us to invalidate importing unexpected segments, note that it is a bit overkill and single monotonic counter could be enough.
-
-#### Importing segments
-
-After a few segments are buffed, we would want to actually process them and update the root stored by accumulation 
-
-This is done by asking to process again for the segment(s), but do without attached witnesses. Witnesses will just be read from previously exported segments.
-
-We define a special workitem operation to trigger this. 
-Refinement will import all declared segment import for the workitem and process them. This time it will send root update to accumulation as in `Direct` example.
-The segments infos must be attached to the workitem desscription.
-
-In attached code, the payload do not contain anything dynamic and is always encoded to "0300000000".
-The dynamic data is the list of the workitems to process, this list as the `export_count` is always written in the workitem definition.
-With a tool I am using to rpc a new item for my node the syntax is :
-```
-mytool item --import wp:c5d3d11b9163e8f30fb8cb9bb5e06321441dd44686b0983d82d54e297ddb817f:0 97a7303e  0x0300000000
-```
-With 97a7303e being my service id, 0x03000000 the static workitem payload and import "wp:<work_package_hash>:<segment_index>".
-
-
-Using segments export and import we manage to buffer some inputs, and delay processing without using very little accumulation storage.
-
-We did not cover the client access to segment.
-
-
-#### Sidenotes on design
-
-This is largely a demo, and usecase is not so good for the following reason:
-
-- tracking segment in accumulation: the storage in jamt service is way to big. One cound just rely on two monotonic counters for exported segments and processed segments. Then resolve all info from exported segments or even refinement workitem.
-The idea is that `export` of segment at service level is already a service trusted operation and `import` from the same service do not strictly need to be validated during accumulation, we only want to avoid double processing. (one would still need to check that exports are done over the right root(s) during accumulation).
-
-- map reduce: the refinement consuming segments is forcing a sequence of segments, so it makes no sense to put the whole witness in segment, only the root change is really needed.
-Proper usecase would be on process that refine to smaller exported segment dataset and merge segments through an infaillible refinement processing.
-
-- delay transaction: makes not a lot of sense. Generally data exported in segment should be transformed data, and really make sense when segment get use in a later computation. Here we just directly copy, so one can say that the design is wrong, but it also lay foundation for mork complex state update (one that would require interaction between non sequential segments processing). 
