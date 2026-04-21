@@ -66,30 +66,33 @@ Full state serializing is done after each state transition (usually done by the 
 
 Full state deserializing is done on each command call.
 
+## Jam Work-Packages
 
-## Payload options
+In Jam, we use Work-Packages to organize the work that the services perform. The Graypaper specifies precisely the constituents of a Work-Package, and it is useful to recapitulate some basic definitions for what follows.
+A Work-Package is, essentially, a grouping of several Work-Items, that encapsulate the work to be done by a service within a core within a specific package Context. The Package includes some more information, in order for the execution to be properly authorized, but that is not important for this tutorial.
 
-The main purpose of this tutorial is to illustrate different techniques when developing services, in detriment of having a well-reasoned use case. Consequently, this tutorial exemplifies some payload options along distinct dimensions.
+The Work-Item is the more granular unit of work: every work-item in a Work-Package is targeted at a specific service (different items in the same package can target different services) and when the package is processed, the service's refinement code is run for each work-item independently in order to produce a Work-Digest. The various Work-Digests are then made available to the service's accumulation logic, that can make the resulting on-chain state updates.
+The main constituents of a Work-item are a blob of payload data, that is passed as input to the refinement logic, a gas limit for each of the service's phases (refinement and accumulation) and a manifest that includes the following:
+- a reference to data supplied extrinsically with the Work-package (ie 'extrinsics') 
+- the number of segments exported by this work-item into the Data Lake (also called the D3L - Distributed Decentralized Data Lake)
+- a series of identifiers for segments previously exported by other packages
 
-### Submission mechanism
-This is how the service request reaches the service. The installments in this tutorial and the accompanying code show how to send a basic Work Item via `Jamt` in the Command line, and how to send a Work-Package (which can have several Work Items) programmatically. This involves the creation of a Builder application, which can connect to a Polkajam Node and send a Work-Package via its RPC interface.
+This tutorial will give brief demonstrations of how to make use of each of these pieces of data, but keep in mind the use-cases shown here are completely artificial and serve only to illustrate Jam's capabilities.
 
-### Delivery mode
+We will often refer to data types in the code representing these concepts, namely: `WorkPackage`, `WorkItem` (with obvious meanings) and the main fields: `payload`, `extrinsic`, etc.
 
-The instructions for the service operation are normally passed in the Work Item's `payload` field. But a Work Item can also receive data through associated extrinsics, and even have access to the Data-Lake or Pre-images.
+## Work-Item Submission
 
+Jam applications must have a means to relay work from their users to the network. In the introductory documents of this tutorial, we showed how to create Work-Items and send them to a running node using the command-line tool `jamt`. But in a realistic scenario it is more likely that a builder application will be responsible for creating Work-Packages and their Work-Items and send them to a chain node. The accompanying code to this tutorial provides a very simple builder that optionally illustrates this scenario. The user can choose to generate a binary file with an encoded Work-item, to be submitted via `jamt`, or to connect directly to a default RPC node and let the builder create and send the package. 
+
+The instructions for the service operation are normally passed in the WorkItem's `payload` field. But a WorkItem can also receive data through associated extrinsics, and even have access to the Data-Lake or Pre-images.
 In this tutorial, the data is divided into a list of Operations (with their state transitions), and a Witness to ensure that these are consistent with the chain's current state. 
 
-The tutorial demonstrates passing data through in extrinsics by adding a Delivery Mode with two options:
-
-- `Direct`: both the Operations and the Witness are passed through the Work Item's payload
-- `Extrinsic`: the operations are passed in the payload, and the witness as an extrinsic
-
-We also demonstrate one way to pass data via the D3L segments, that will be described in the next subsection. 
+We use the Witness to demonstrate the usage of extrinsics. When creating a binary for sending with `jamt`, we put the Witness in the item's payload, and so provide a default (an empty list of) set of extrinsic data. When we connect to an RPC Node instead, and create the Work Package, we move the Witness from the payload to the extrinsic data.
 
 ### Execution mode
-
-In the simplest case, the execution of a service's logic invocation is done within the scope of a single Work Item. That is, the Work Item is self-sufficient and has all the data needed for the completion of one operation from beginning to end. But a Work Item (and in general a Work Package) may depend on data produced by other Work Packages, and require data exported by them. We illustrate this in a very simple scenario by creating sets of two paired Work Packages where the first one exports data for the second one to execute.
+We define in the code an enumeration to represent when a Work-package can be processed. 
+In the simplest case, the execution of a service's logic invocation is done within the scope of a single Work Item's refinement, that is, the Work Item is self-sufficient and has all the data needed for the completion of one operation from beginning to end. But a Work Item (and in general a Work Package) may depend on data produced by other Work Packages, and require data exported by them. We illustrate this in a very simple scenario by creating sets of two paired Work Packages where the first one exports data for the second one to execute.
 We stress this is an artificial use-case, merely for the illustration of this sort of dependency and essentially splits the work normally done in a single call across two Work-Package. 
 
 In the accompanying code, the payload is characterized by an execution mode. This can have three settings, that cover the cases we introduced above:
@@ -101,15 +104,20 @@ In the accompanying code, the payload is characterized by an execution mode. Thi
 
 ### Handling D3L Segments
 
-A package can read D3L data by invoking the `refine::import` method, and passing a single index. This allows it to specify which segment it wants to load (a package can import at most 3072 segments). However, D3L segments are not identified by a simple index. Segments are identified by a pair of values: a Root Identifier and an index into the list of segments associated to that identifier. The Root Identifier can be of two kinds: a segment-root, corresponding to the root hash of a Merkle-Tree of all the segments exported in a Work-Package, or the WorkPackageHash itself.
+Work-Packages can use the Jam data-lake (D3L) to store data for at least 28 days in fixed-size segments. This is a relatively long-term storage, that allows packages to process large amounts of data decoupled it from the construction of the Work-Package itself, which merely keeps a reference to the data segments and where to find them. This allows Work-Packages to be small enough for guarantors and auditors to reconstruct and evaluate them when needed.
 
-In order to map the `index` passed to `refine::import` into a full segment identifier, a WorkItem that is looking to import segments must have a non-empty list in its `import_segments` field. This is a list of `ImportSpec`s that encode the full segment identifier.
+This may also be useful in scenarios with large computation requirements, for example, to implement a MapReduce framework. WorkItems can be used to implement the parallel processing and exporting their (partial) results to D3L segments. Once this phase is finished, a second-layer operation can reduce these intermediate datasets to the final result.
 
-Exporting a segment is easier, and requires only calling the appropriate method `refine::export` or `refine::export_slice`, keeping in mind that the number of such invocations can not go over the WorkItem's limit in field `export_count`, or else this will return an error of `ApiResult::StorageFull`.
+A Work-Item can access the D3L during the refinement phase, which includes the ability to export segments, and to do so, it must declare in its manifest the number of segments it exports. The hashes of each of the exported segments are gathered in a Merkle-Tree and the resulting root, known as the segment-root, can be used as an identifier for this segment set.
+A segment can be exported with the method `refine::export` or `refine::export_slice` with the segment data. The number of such invocations must match the number declared by the WorkItem in field `export_count`, or else this will return an error.
 
-Segments may be useful in scenarios with large computation requirements, for example, to implement a MapReduce problem solution. WorkItems can be used to implement the parallel processing and exporting their (partial) results to D3L segments. Once this phase is finished, a second-layer operation can reduce these intermediate datasets to the final result.
+Segments exported into the D3L are accessible for importing by other packages. A package can read D3L data by invoking the `refine::import` method, and passing a single index. This allows it to specify which segment it wants to load (a package can import at most 3072 segments). However, D3L segments are not identified by a simple index. 
+Segments are identified by a pair of values: a Root Identifier and an index into the list of segments associated to that identifier. The Work-Item includes in its manifest a list of these tuples, encapsulated in a type called `ImportSpec`, so that the refinement code can refer to the segments by their index in this list. 
 
-In this example, the data we export is small, and should always fit in a single Segment, so the code does not include any error checking. In practice, segments have a fixed size and developers should ensure the data is split by how many segments are needed. Each segment has exactly 4,104 bytes. Coupled with the maximum number of segments, a service can receive a maximum of 12,607,488 bytes in segments.
+Root Identifiers can be of two kinds: a segment-root, corresponding to the root hash of a Merkle-Tree of all the segments exported in a Work-Package, or the WorkPackageHash itself. A Work-Item that does not need to import anything will have in its manifest an empty list of `ImportSpec`s.
+
+In this example, the data we export is small, and should always fit in a single Segment, so the code does not include any error checking. Each segment has exactly 4,104 bytes. Coupled with the maximum number of segments, a service can receive a maximum of 12,607,488 bytes in segments, so the example we give here, which places only a few bytes in a segment, is probably not justified.
+In real-world projects, developers should consider whether they need such long-term storage, and plan the best way of using it, avoiding creating unnecessary segments. Conversely, they also have to plan how to split their data if it is longer than what a single segment can hold. The allowance of nearly 12Mb is very generous, but of course it all depends on the problem at hand.
 
 ### Sidenotes on design
 
@@ -121,7 +129,7 @@ This is largely a demo, and so the design was sacrificed in several ways:
 
 - data copying: the example here stores in a segment a copy of the data it received. The only advantage is that it advances some of the work (validation) in the first phase, which can be avoided in the second phase. In a more realistic scenario, we should also attempt to save on the data is stored (that is, exported) for the second phase. Exported data should, as much as possible, be transformed data, and where possible smaller than the original input, with just the information needed for the next step.
 
-Despite the above criticisms, the model proposed in this tutorial can be viewed as the basic building blocks to creating more complex designs to solve real complex problems.
+The model proposed in this tutorial can be viewed as the basic building blocks to creating more complex designs to solve real complex problems.
 
 ## Building and testing
 

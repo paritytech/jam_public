@@ -8,7 +8,6 @@ use jam_types::AccumulateItem;
 use jam_types::{WorkItemRecord, WorkPackageHash};
 use token_ledger_state_v2::DeliveryMode;
 use token_ledger_state_v2::Hash;
-// use token_ledger_state_v2::Solicit;
 
 #[derive(Clone, Debug, Encode, Decode)]
 pub struct Operation {

@@ -74,12 +74,6 @@ fn main() {
         )
         .arg(
             arg!(
-                --extrinsic  "Send the witness to the service as an extrinsic, and not in the WorkItem payload"
-            )
-            .required(false),
-        )
-        .arg(
-            arg!(
                 --"connect-rpc"  "Connect to a running RPC node. Submit work-packages directly to it instead of writing payload to file"
             )
             .required(false),
@@ -148,8 +142,6 @@ fn main() {
         override_head = Some(hash.try_into().unwrap());
     }
 
-    let extrinsic_mode = matches.get_flag("extrinsic");
-
     let preimage_steps = matches.get_flag("preimage");
     let with_segments = matches.get_flag("segment");
     if preimage_steps && with_segments {
@@ -164,7 +156,7 @@ fn main() {
     let db_path = std::path::PathBuf::new();
     let witness = compute_transition_witness(&db_path, override_head, &operations);
 
-    let delivery = if extrinsic_mode {
+    let delivery = if connect_rpc {
         dbg!("Submitting in extrinsic mode");
         DeliveryMode::Extrinsic
     } else {
