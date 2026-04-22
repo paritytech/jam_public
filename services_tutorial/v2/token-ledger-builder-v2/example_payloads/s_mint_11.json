@@ -1,0 +1,10 @@
+[
+  {
+    "Mint": {
+      "token_id": 11,
+      "amount": 1000000000,
+      "to": "513523c8b48319b649d7d4d4e613232fd9c13f41029d4bc5f74d6eceb91afe9f",
+      "signature": "4082ec1add13729ada862d20f478fbf9bf4a196f06b819097db54ce7be22db0f7e0a1b4365b1b4bafe389b1e10c457153f3583b0822e71ef5327884c8ca7b10b"
+    }
+  }
+]

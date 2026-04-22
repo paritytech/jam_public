@@ -1,2 +1,5 @@
 /**/target
 *.jam
+*.polkavm
+*.DS_Store
+HEAD
