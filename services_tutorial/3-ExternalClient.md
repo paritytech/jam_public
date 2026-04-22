@@ -117,7 +117,7 @@ Segments are identified by a pair of values: a Root Identifier and an index into
 
 Root Identifiers can be of two kinds: a segment-root, corresponding to the root hash of a Merkle-Tree of all the segments exported in a `WorkPackage`, or the WorkPackageHash itself. A `WorkItem` that does not need to import anything will have in its manifest an empty list of `ImportSpec`s.
 
-In this example, the data we export is small, and should always fit in a single Segment, so the code does not include any error checking. Each segment has exactly 4,104 bytes, which coupled with the maximum number of segments, means a service can receive a maximum of 12,607,488 bytes in segments. The example we give here, which places only a few bytes in a segment, leaves most of the segment empty and is probably a very good use of segments.
+In this example, the data we export is small, and should always fit in a single Segment, so the code does not include any error checking. Each segment has exactly 4,104 bytes, which coupled with the maximum number of segments, means a service can receive a maximum of 12,607,488 bytes in segments. The example we give here, which places only a few bytes in a segment, leaves most of the segment empty and is probably not a very good use of segments.
 In real-world projects, developers should consider whether they need such long-term storage, and plan the best way of using it, avoiding creating unnecessary segments. Conversely, they also have to plan how to split their data if it is longer than what a single segment can hold. The allowance of nearly 12Mb is very generous, but of course it all depends on the problem at hand.
 
 ### Sidenotes on design
